@@ -1,0 +1,6 @@
+{
+  "name": "Registro de Avance en Gimnasio con Excel",
+  "description": "Carga tu Excel de rutina, detecta automáticamente días de entreno y descanso, registra series, analiza tu progreso con gráficos y exporta el archivo actualizado.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
