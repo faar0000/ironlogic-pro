@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Cloud, CloudCheck, CloudUpload, CloudDownload, LogOut, Loader2, CheckCircle2 } from 'lucide-react';
+import { Cloud, CloudCheck, CloudUpload, CloudDownload, LogOut, Loader2 } from 'lucide-react';
 import { GymProgram } from '../types';
 import { checkDriveStatus, loginWithDrive, logoutDrive, syncToDrive, loadFromDrive, DriveAuthStatus } from '../utils/googleDriveSync';
 
@@ -18,17 +18,31 @@ export const GoogleDriveBar: React.FC<GoogleDriveBarProps> = ({
   const [isSyncing, setIsSyncing] = useState(false);
   const [isLoadingDriveData, setIsLoadingDriveData] = useState(false);
   const [lastSyncTime, setLastSyncTime] = useState<string | null>(null);
+  const [hasLoadedFromDrive, setHasLoadedFromDrive] = useState(false);
 
-  // Initial check on mount
+  // Initial check on mount: if authenticated, auto-load backup from Drive
   useEffect(() => {
-    checkDriveStatus().then((st) => {
+    checkDriveStatus().then(async (st) => {
       setDriveStatus(st);
+      if (st.authenticated) {
+        setIsLoadingDriveData(true);
+        const res = await loadFromDrive();
+        setIsLoadingDriveData(false);
+
+        if (res.success && res.programData) {
+          onProgramLoadedFromDrive(res.programData);
+          showToast('☁️ ¡Datos restaurados automáticamente desde Google Drive!');
+          const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+          setLastSyncTime(timeStr);
+        }
+        setHasLoadedFromDrive(true);
+      }
     });
   }, []);
 
-  // Automatic background sync when program updates (if connected)
+  // Automatic background sync when program updates (only AFTER drive initial load is complete)
   useEffect(() => {
-    if (!driveStatus.authenticated) return;
+    if (!driveStatus.authenticated || !hasLoadedFromDrive) return;
 
     const timer = setTimeout(async () => {
       setIsSyncing(true);
@@ -39,10 +53,10 @@ export const GoogleDriveBar: React.FC<GoogleDriveBarProps> = ({
         const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
         setLastSyncTime(timeStr);
       }
-    }, 1500); // 1.5s debounce
+    }, 2000); // 2s debounce
 
     return () => clearTimeout(timer);
-  }, [program, driveStatus.authenticated]);
+  }, [program, driveStatus.authenticated, hasLoadedFromDrive]);
 
   const handleConnect = async () => {
     setIsSyncing(true);
@@ -52,15 +66,31 @@ export const GoogleDriveBar: React.FC<GoogleDriveBarProps> = ({
     if (success) {
       const status = await checkDriveStatus();
       setDriveStatus(status);
-      showToast('☁️ ¡Conectado con Google Drive con éxito!');
 
-      // Immediate first sync
-      setIsSyncing(true);
-      const syncRes = await syncToDrive(program);
-      setIsSyncing(false);
+      // FIRST: Check if Drive already has existing backup data from desktop/other session
+      setIsLoadingDriveData(true);
+      const res = await loadFromDrive();
+      setIsLoadingDriveData(false);
 
-      if (syncRes.success) {
-        setLastSyncTime(new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
+      if (res.success && res.programData) {
+        onProgramLoadedFromDrive(res.programData);
+        setHasLoadedFromDrive(true);
+        showToast('☁️ ¡Conectado a Google Drive! Tus datos guardados se cargaron con éxito.');
+        const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        setLastSyncTime(timeStr);
+      } else {
+        // No backup exists in Drive yet, create initial backup with current local program
+        setIsSyncing(true);
+        const syncRes = await syncToDrive(program);
+        setIsSyncing(false);
+        setHasLoadedFromDrive(true);
+
+        if (syncRes.success) {
+          showToast('☁️ ¡Conectado a Google Drive! Se creó tu primera copia de seguridad.');
+          setLastSyncTime(new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
+        } else {
+          showToast(`⚠️ Conectado, pero hubo un error al guardar: ${syncRes.error}`);
+        }
       }
     }
   };
@@ -69,6 +99,7 @@ export const GoogleDriveBar: React.FC<GoogleDriveBarProps> = ({
     if (window.confirm('¿Deseas desconectar tu cuenta de Google Drive?')) {
       await logoutDrive();
       setDriveStatus({ configured: true, authenticated: false });
+      setHasLoadedFromDrive(false);
       setLastSyncTime(null);
       showToast('Cuenta de Google Drive desconectada.');
     }
@@ -95,7 +126,10 @@ export const GoogleDriveBar: React.FC<GoogleDriveBarProps> = ({
 
     if (res.success && res.programData) {
       onProgramLoadedFromDrive(res.programData);
+      setHasLoadedFromDrive(true);
       showToast('☁️ ¡Rutina y progreso cargados desde Google Drive!');
+      const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      setLastSyncTime(timeStr);
     } else {
       showToast(`⚠️ ${res.error || 'No se pudo cargar la data de Google Drive.'}`);
     }
@@ -131,7 +165,7 @@ export const GoogleDriveBar: React.FC<GoogleDriveBarProps> = ({
               <Cloud className="w-4 h-4 text-blue-400" />
               <span className="text-white/80 font-medium">Auto-guardado en Nube:</span>
               <span className="text-white/50 hidden sm:inline">
-                Guarda tu avance una sola vez e ingresa desde cualquier dispositivo
+                Sincroniza tu progreso entre tu computadora y tu teléfono
               </span>
             </>
           )}
@@ -139,10 +173,10 @@ export const GoogleDriveBar: React.FC<GoogleDriveBarProps> = ({
 
         {/* Action Controls */}
         <div className="flex items-center space-x-2">
-          {isSyncing && (
+          {(isSyncing || isLoadingDriveData) && (
             <span className="flex items-center text-blue-400 font-mono text-[11px] mr-1">
               <Loader2 className="w-3.5 h-3.5 animate-spin mr-1" />
-              Guardando en Drive...
+              {isLoadingDriveData ? 'Descargando datos...' : 'Guardando en Drive...'}
             </span>
           )}
 
@@ -150,7 +184,7 @@ export const GoogleDriveBar: React.FC<GoogleDriveBarProps> = ({
             <>
               <button
                 onClick={handleManualSync}
-                disabled={isSyncing}
+                disabled={isSyncing || isLoadingDriveData}
                 className="inline-flex items-center px-2.5 py-1 rounded bg-blue-600/20 hover:bg-blue-600/30 text-blue-300 border border-blue-500/30 transition-colors"
                 title="Sincronizar cambios actuales con Google Drive"
               >
@@ -160,15 +194,11 @@ export const GoogleDriveBar: React.FC<GoogleDriveBarProps> = ({
 
               <button
                 onClick={handleLoadFromDrive}
-                disabled={isLoadingDriveData}
+                disabled={isSyncing || isLoadingDriveData}
                 className="inline-flex items-center px-2.5 py-1 rounded bg-white/5 hover:bg-white/10 text-white/90 border border-white/10 transition-colors"
                 title="Descargar la versión más reciente guardada en Google Drive"
               >
-                {isLoadingDriveData ? (
-                  <Loader2 className="w-3.5 h-3.5 mr-1 animate-spin text-blue-400" />
-                ) : (
-                  <CloudDownload className="w-3.5 h-3.5 mr-1 text-emerald-400" />
-                )}
+                <CloudDownload className="w-3.5 h-3.5 mr-1 text-emerald-400" />
                 Cargar de Drive
               </button>
 
@@ -183,7 +213,7 @@ export const GoogleDriveBar: React.FC<GoogleDriveBarProps> = ({
           ) : (
             <button
               onClick={handleConnect}
-              disabled={isSyncing}
+              disabled={isSyncing || isLoadingDriveData}
               className="inline-flex items-center px-3 py-1 rounded bg-blue-600 hover:bg-blue-500 text-white font-medium transition-colors shadow-sm"
             >
               <CloudUpload className="w-3.5 h-3.5 mr-1.5" />
