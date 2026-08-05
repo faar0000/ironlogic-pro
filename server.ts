@@ -122,23 +122,27 @@ app.get('/api/auth/google/callback', async (req, res) => {
       <html>
         <head>
           <title>Autenticación Exitosa</title>
+          <meta name="viewport" content="width=device-width, initial-scale=1.0">
           <style>
-            body { font-family: system-ui, sans-serif; background: #0f0f0f; color: white; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; }
-            .card { background: #1a1a1a; border: 1px solid #333; padding: 2rem; border-radius: 1rem; text-align: center; }
+            body { font-family: system-ui, sans-serif; background: #0f0f0f; color: white; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; padding: 1rem; box-sizing: border-box; }
+            .card { background: #1a1a1a; border: 1px solid #333; padding: 2rem; border-radius: 1rem; text-align: center; max-width: 400px; width: 100%; }
           </style>
         </head>
         <body>
           <div class="card">
             <h2>✅ Conectado con Google Drive</h2>
-            <p>Tu cuenta ha sido vinculada correctamente. Guardando cambios...</p>
+            <p>Redirigiendo a tu aplicación para cargar tus datos...</p>
           </div>
           <script>
-            if (window.opener) {
-              window.opener.postMessage({ type: 'GOOGLE_OAUTH_SUCCESS' }, '*');
-              setTimeout(() => window.close(), 1000);
-            } else {
-              setTimeout(() => { window.location.href = '/'; }, 1500);
+            if (window.opener && !window.opener.closed) {
+              try {
+                window.opener.postMessage({ type: 'GOOGLE_OAUTH_SUCCESS' }, '*');
+              } catch (e) {}
+              setTimeout(() => window.close(), 600);
             }
+            setTimeout(() => {
+              window.location.href = '/?drive_connected=true';
+            }, 800);
           </script>
         </body>
       </html>
@@ -162,7 +166,7 @@ app.post('/api/drive/sync', async (req, res) => {
     return res.status(401).json({ error: 'No autenticado con Google Drive.' });
   }
 
-  const { programData, fileName } = req.body;
+  const { programData } = req.body;
   if (!programData) {
     return res.status(400).json({ error: 'No se proporcionaron datos del programa.' });
   }
@@ -185,6 +189,7 @@ app.post('/api/drive/sync', async (req, res) => {
     const searchRes = await drive.files.list({
       q: `name = '${backupFileName}' and trashed = false`,
       fields: 'files(id, name, webViewLink, modifiedTime)',
+      orderBy: 'modifiedTime desc',
       spaces: 'drive',
     });
 
@@ -258,6 +263,7 @@ app.get('/api/drive/load', async (req, res) => {
     const searchRes = await drive.files.list({
       q: `name = '${backupFileName}' and trashed = false`,
       fields: 'files(id, name, modifiedTime)',
+      orderBy: 'modifiedTime desc',
       spaces: 'drive',
     });
 
@@ -268,12 +274,21 @@ app.get('/api/drive/load', async (req, res) => {
     const fileId = searchRes.data.files[0].id!;
     const fileRes = await drive.files.get(
       { fileId, alt: 'media' },
-      { responseType: 'json' }
+      { responseType: 'text' }
     );
+
+    let programData = fileRes.data;
+    if (typeof programData === 'string') {
+      try {
+        programData = JSON.parse(programData);
+      } catch (e) {
+        console.error('Error parsing JSON content from Drive:', e);
+      }
+    }
 
     return res.json({
       success: true,
-      programData: fileRes.data,
+      programData,
       modifiedTime: searchRes.data.files[0].modifiedTime,
     });
   } catch (error: any) {

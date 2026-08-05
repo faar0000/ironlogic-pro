@@ -36,8 +36,17 @@ export async function loginWithDrive(): Promise<boolean> {
       return false;
     }
 
-    // Open popup
-    const width = 500;
+    // Detect mobile device or popup block
+    const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || window.innerWidth < 768;
+
+    if (isMobile) {
+      // Direct full page redirect on mobile for maximum reliability
+      window.location.href = data.authUrl;
+      return false;
+    }
+
+    // Desktop popup flow
+    const width = 520;
     const height = 650;
     const left = window.screen.width / 2 - width / 2;
     const top = window.screen.height / 2 - height / 2;
@@ -48,11 +57,20 @@ export async function loginWithDrive(): Promise<boolean> {
       `width=${width},height=${height},top=${top},left=${left},scrollbars=yes`
     );
 
+    if (!popup) {
+      // If popup blocked, fallback to direct redirect
+      window.location.href = data.authUrl;
+      return false;
+    }
+
     return new Promise((resolve) => {
+      let resolved = false;
+
       const handleMessage = (event: MessageEvent) => {
         if (event.data && event.data.type === 'GOOGLE_OAUTH_SUCCESS') {
           window.removeEventListener('message', handleMessage);
           if (popup && !popup.closed) popup.close();
+          resolved = true;
           resolve(true);
         }
       };
@@ -64,8 +82,9 @@ export async function loginWithDrive(): Promise<boolean> {
         if (popup && popup.closed) {
           clearInterval(timer);
           window.removeEventListener('message', handleMessage);
-          // Check status again
-          checkDriveStatus().then((st) => resolve(st.authenticated));
+          if (!resolved) {
+            checkDriveStatus().then((st) => resolve(st.authenticated));
+          }
         }
       }, 1000);
     });
@@ -121,9 +140,22 @@ export async function loadFromDrive(): Promise<{ success: boolean; programData?:
       return { success: false, error: data.error || 'No se pudo cargar desde Google Drive' };
     }
 
+    let programData = data.programData;
+    if (typeof programData === 'string') {
+      try {
+        programData = JSON.parse(programData);
+      } catch (e) {
+        console.error('Error parsing programData JSON:', e);
+      }
+    }
+
+    if (!programData || !Array.isArray(programData.workoutDays)) {
+      return { success: false, error: 'El archivo guardado en Google Drive no tiene un formato válido.' };
+    }
+
     return {
       success: true,
-      programData: data.programData,
+      programData,
     };
   } catch (e: any) {
     console.error('Error loading from Drive:', e);

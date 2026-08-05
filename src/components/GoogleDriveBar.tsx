@@ -22,6 +22,12 @@ export const GoogleDriveBar: React.FC<GoogleDriveBarProps> = ({
 
   // Initial check on mount: if authenticated, auto-load backup from Drive
   useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    const isJustConnected = urlParams.get('drive_connected') === 'true';
+    if (isJustConnected) {
+      window.history.replaceState({}, document.title, window.location.pathname);
+    }
+
     checkDriveStatus().then(async (st) => {
       setDriveStatus(st);
       if (st.authenticated) {
@@ -31,9 +37,11 @@ export const GoogleDriveBar: React.FC<GoogleDriveBarProps> = ({
 
         if (res.success && res.programData) {
           onProgramLoadedFromDrive(res.programData);
-          showToast('☁️ ¡Datos restaurados automáticamente desde Google Drive!');
+          showToast(isJustConnected ? '☁️ ¡Conectado a Google Drive y datos cargados con éxito!' : '☁️ ¡Datos sincronizados desde Google Drive!');
           const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
           setLastSyncTime(timeStr);
+        } else if (isJustConnected) {
+          showToast('☁️ Conectado a Google Drive.');
         }
         setHasLoadedFromDrive(true);
       }
@@ -75,7 +83,7 @@ export const GoogleDriveBar: React.FC<GoogleDriveBarProps> = ({
       if (res.success && res.programData) {
         onProgramLoadedFromDrive(res.programData);
         setHasLoadedFromDrive(true);
-        showToast('☁️ ¡Conectado a Google Drive! Tus datos guardados se cargaron con éxito.');
+        showToast('☁️ ¡Conectado a Google Drive! Tu rutina guardada ha sido cargada.');
         const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
         setLastSyncTime(timeStr);
       } else {
@@ -113,31 +121,33 @@ export const GoogleDriveBar: React.FC<GoogleDriveBarProps> = ({
     if (syncRes.success) {
       const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
       setLastSyncTime(timeStr);
-      showToast('☁️ Progreso guardado exitosamente en Google Drive.');
+      showToast('📤 ¡Progreso subido y guardado exitosamente en Google Drive!');
     } else {
       showToast(`⚠️ Error al guardar en Drive: ${syncRes.error}`);
     }
   };
 
   const handleLoadFromDrive = async () => {
-    setIsLoadingDriveData(true);
-    const res = await loadFromDrive();
-    setIsLoadingDriveData(false);
+    if (window.confirm('¿Deseas descargar la versión más reciente guardada en Google Drive? Reemplazará la vista actual.')) {
+      setIsLoadingDriveData(true);
+      const res = await loadFromDrive();
+      setIsLoadingDriveData(false);
 
-    if (res.success && res.programData) {
-      onProgramLoadedFromDrive(res.programData);
-      setHasLoadedFromDrive(true);
-      showToast('☁️ ¡Rutina y progreso cargados desde Google Drive!');
-      const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-      setLastSyncTime(timeStr);
-    } else {
-      showToast(`⚠️ ${res.error || 'No se pudo cargar la data de Google Drive.'}`);
+      if (res.success && res.programData) {
+        onProgramLoadedFromDrive(res.programData);
+        setHasLoadedFromDrive(true);
+        showToast('📥 ¡Rutina y progreso cargados exitosamente desde Google Drive!');
+        const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        setLastSyncTime(timeStr);
+      } else {
+        showToast(`⚠️ ${res.error || 'No se encontró archivo de respaldo en tu Google Drive.'}`);
+      }
     }
   };
 
   return (
     <div className="bg-[#121212] border-b border-white/10 text-xs py-2 px-4 sm:px-6 lg:px-8">
-      <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-2">
+      <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-3">
         
         {/* Status indicator */}
         <div className="flex items-center space-x-2">
@@ -149,23 +159,23 @@ export const GoogleDriveBar: React.FC<GoogleDriveBarProps> = ({
               </span>
               <span className="text-emerald-400 font-medium flex items-center gap-1">
                 <CloudCheck className="w-4 h-4 text-emerald-400" />
-                Sincronizado con Google Drive:
+                Google Drive Conectado:
               </span>
-              <span className="text-white/80 font-mono">
-                {driveStatus.user?.email || driveStatus.user?.name || 'Conectado'}
+              <span className="text-white/80 font-mono text-[11px] bg-white/5 px-2 py-0.5 rounded border border-white/10">
+                {driveStatus.user?.email || driveStatus.user?.name || 'Usuario'}
               </span>
               {lastSyncTime && (
-                <span className="text-white/40 text-[11px] font-mono">
-                  (Guardado {lastSyncTime})
+                <span className="text-white/40 text-[11px] font-mono hidden md:inline">
+                  (Auto-guardado {lastSyncTime})
                 </span>
               )}
             </>
           ) : (
             <>
-              <Cloud className="w-4 h-4 text-blue-400" />
-              <span className="text-white/80 font-medium">Auto-guardado en Nube:</span>
+              <Cloud className="w-4 h-4 text-blue-400 animate-pulse" />
+              <span className="text-white/90 font-medium">Sincronización Multidispositivo:</span>
               <span className="text-white/50 hidden sm:inline">
-                Sincroniza tu progreso entre tu computadora y tu teléfono
+                Conecta tu Google Drive para mantener tu celular y computadora sincronizados
               </span>
             </>
           )}
@@ -174,49 +184,51 @@ export const GoogleDriveBar: React.FC<GoogleDriveBarProps> = ({
         {/* Action Controls */}
         <div className="flex items-center space-x-2">
           {(isSyncing || isLoadingDriveData) && (
-            <span className="flex items-center text-blue-400 font-mono text-[11px] mr-1">
-              <Loader2 className="w-3.5 h-3.5 animate-spin mr-1" />
-              {isLoadingDriveData ? 'Descargando datos...' : 'Guardando en Drive...'}
+            <span className="flex items-center text-blue-400 font-mono text-[11px] mr-2 bg-blue-500/10 px-2 py-1 rounded border border-blue-500/20">
+              <Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5 text-blue-400" />
+              {isLoadingDriveData ? 'Descargando de Drive...' : 'Subiendo a Drive...'}
             </span>
           )}
 
           {driveStatus.authenticated ? (
             <>
+              {/* BOTÓN 1: GUARDAR (SUBIR) */}
               <button
                 onClick={handleManualSync}
                 disabled={isSyncing || isLoadingDriveData}
-                className="inline-flex items-center px-2.5 py-1 rounded bg-blue-600/20 hover:bg-blue-600/30 text-blue-300 border border-blue-500/30 transition-colors"
-                title="Sincronizar cambios actuales con Google Drive"
+                className="inline-flex items-center px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-semibold text-xs border border-blue-400/30 transition-all shadow-sm active:scale-95 disabled:opacity-50"
+                title="Sube y sobrescribe tu copia en Google Drive con los datos locales actuales"
               >
-                <CloudUpload className="w-3.5 h-3.5 mr-1 text-blue-400" />
+                <CloudUpload className="w-4 h-4 mr-1.5 text-blue-100" />
                 Guardar en Drive
               </button>
 
+              {/* BOTÓN 2: CARGAR (DESCARGAR) */}
               <button
                 onClick={handleLoadFromDrive}
                 disabled={isSyncing || isLoadingDriveData}
-                className="inline-flex items-center px-2.5 py-1 rounded bg-white/5 hover:bg-white/10 text-white/90 border border-white/10 transition-colors"
-                title="Descargar la versión más reciente guardada en Google Drive"
+                className="inline-flex items-center px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs border border-emerald-400/30 transition-all shadow-sm active:scale-95 disabled:opacity-50"
+                title="Descarga y restaura los datos guardados en tu Google Drive a esta pantalla"
               >
-                <CloudDownload className="w-3.5 h-3.5 mr-1 text-emerald-400" />
+                <CloudDownload className="w-4 h-4 mr-1.5 text-emerald-100" />
                 Cargar de Drive
               </button>
 
               <button
                 onClick={handleDisconnect}
-                className="p-1 text-white/40 hover:text-rose-400 rounded transition-colors"
-                title="Desconectar Google Drive"
+                className="p-1.5 text-white/40 hover:text-rose-400 hover:bg-rose-500/10 rounded-lg transition-colors ml-1"
+                title="Desconectar cuenta de Google Drive"
               >
-                <LogOut className="w-3.5 h-3.5" />
+                <LogOut className="w-4 h-4" />
               </button>
             </>
           ) : (
             <button
               onClick={handleConnect}
               disabled={isSyncing || isLoadingDriveData}
-              className="inline-flex items-center px-3 py-1 rounded bg-blue-600 hover:bg-blue-500 text-white font-medium transition-colors shadow-sm"
+              className="inline-flex items-center px-3.5 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-semibold text-xs transition-all shadow-md active:scale-95"
             >
-              <CloudUpload className="w-3.5 h-3.5 mr-1.5" />
+              <CloudUpload className="w-4 h-4 mr-1.5 text-blue-200" />
               Conectar Google Drive
             </button>
           )}
