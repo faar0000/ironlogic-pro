@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Header } from './components/Header';
+import { GoogleDriveBar } from './components/GoogleDriveBar';
 import { WeeklyRoutineOverview } from './components/WeeklyRoutineOverview';
 import { WorkoutLogger } from './components/WorkoutLogger';
 import { AnalyticsView } from './components/AnalyticsView';
@@ -10,6 +11,7 @@ import { AddExerciseModal } from './components/AddExerciseModal';
 
 import { INITIAL_SAMPLE_PROGRAM } from './utils/sampleData';
 import { exportProgramToExcel } from './utils/excelExporter';
+import { syncProgramHistory } from './utils/historySync';
 import { GymProgram, WorkoutDay, Exercise } from './types';
 
 const STORAGE_KEY = 'gym_progress_program_v2';
@@ -96,7 +98,12 @@ export default function App() {
 
   const handleUpdateDay = (updatedDay: WorkoutDay) => {
     const updatedDays = program.workoutDays.map(d => d.id === updatedDay.id ? updatedDay : d);
-    setProgram({ ...program, workoutDays: updatedDays, lastUpdated: new Date().toISOString().split('T')[0] });
+    const updatedProgram = syncProgramHistory({
+      ...program,
+      workoutDays: updatedDays,
+      lastUpdated: new Date().toISOString().split('T')[0]
+    });
+    setProgram(updatedProgram);
   };
 
   const handleAddExerciseToActiveDay = (newEx: Exercise) => {
@@ -128,6 +135,18 @@ export default function App() {
         onLoadSampleClick={handleLoadSample}
         onExportClick={handleExportExcel}
         onResetProgress={handleResetProgress}
+      />
+
+      {/* Google Drive Auto-Sync Bar */}
+      <GoogleDriveBar
+        program={program}
+        onProgramLoadedFromDrive={(loadedProgram) => {
+          setProgram(loadedProgram);
+          if (loadedProgram.workoutDays.length > 0) {
+            setActiveDayId(getFirstUncompletedDayId(loadedProgram));
+          }
+        }}
+        showToast={showToast}
       />
 
       {/* Main Container */}

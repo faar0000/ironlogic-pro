@@ -452,7 +452,9 @@ export function parseExcelFile(fileData: ArrayBuffer, fileName: string): GymProg
             const setNumber = (rIdx % (targetSetsCount || 1)) + 1;
             const w = rowItem.weight || 0;
             const r = rowItem.repsRealized || parseInt(rowItem.targetReps, 10) || 10;
-            const dStr = formatDateDisplay(rowItem.dateObj, rowItem.rawDateStr) || new Date().toISOString().split('T')[0];
+            const dStr = rowItem.dateObj
+              ? rowItem.dateObj.toISOString().split('T')[0]
+              : (rowItem.rawDateStr || new Date().toISOString().split('T')[0]);
             history.push({
               id: `hist-${dayIdx}-${exIdx}-${rIdx}`,
               date: dStr,

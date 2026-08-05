@@ -1,14 +1,24 @@
 import * as XLSX from 'xlsx';
 import { GymProgram } from '../types';
+import { parseToDate } from './excelParser';
+import { syncProgramHistory, getProgramActiveMonday } from './historySync';
 
-export function exportProgramToExcel(program: GymProgram) {
+export function exportProgramToExcel(rawProgram: GymProgram) {
+  // Synchronize history so all completed sets in current week are included
+  const program = syncProgramHistory(rawProgram);
+  const activeMonday = getProgramActiveMonday(program);
+  const activeStartMs = activeMonday.getTime();
+
   const wb = XLSX.utils.book_new();
 
   // Sheet 1: Routine & Current Logs
   const routineRows: any[] = [];
-  program.workoutDays.forEach(day => {
+  program.workoutDays.forEach((day, dayIdx) => {
+    const dayDateObj = new Date(activeStartMs + dayIdx * 86400000);
+
     if (day.dayType === 'rest') {
       routineRows.push({
+        Fecha: dayDateObj,
         Día: day.dayName,
         Tipo: 'DESCANSO',
         Rutina: day.title,
@@ -25,15 +35,23 @@ export function exportProgramToExcel(program: GymProgram) {
     } else {
       day.exercises.forEach(ex => {
         const completedSets = ex.currentSets.filter(s => s.completed);
-        const avgCurrentWeight = completedSets.length > 0 
-          ? (completedSets.reduce((acc, s) => acc + s.weight, 0) / completedSets.length).toFixed(1)
-          : (ex.currentSets[0]?.weight || '-');
-        
-        const avgCurrentReps = completedSets.length > 0 
+        const avgCurrentWeight = completedSets.length > 0
+          ? Number((completedSets.reduce((acc, s) => acc + s.weight, 0) / completedSets.length).toFixed(1))
+          : '-';
+
+        const avgCurrentReps = completedSets.length > 0
           ? Math.round(completedSets.reduce((acc, s) => acc + s.reps, 0) / completedSets.length)
-          : (ex.currentSets[0]?.reps || '-');
+          : '-';
+
+        let statusStr = 'Pendiente';
+        if (completedSets.length === ex.targetSets && ex.targetSets > 0) {
+          statusStr = 'Completado';
+        } else if (completedSets.length > 0) {
+          statusStr = `${completedSets.length}/${ex.targetSets} series`;
+        }
 
         routineRows.push({
+          Fecha: dayDateObj,
           Día: day.dayName,
           Tipo: 'ENTRENAMIENTO',
           Rutina: day.title,
@@ -45,43 +63,62 @@ export function exportProgramToExcel(program: GymProgram) {
           'Reps Anterior': ex.previousLogs?.reps ?? '-',
           'Peso Hoy (kg)': avgCurrentWeight,
           'Reps Hoy': avgCurrentReps,
-          Estado: completedSets.length === ex.targetSets ? 'Completado' : `${completedSets.length}/${ex.targetSets} series`
+          Estado: statusStr
         });
       });
     }
   });
 
-  const wsRoutine = XLSX.utils.json_to_sheet(routineRows);
-  // Auto column width
+  const wsRoutine = XLSX.utils.json_to_sheet(routineRows, { cellDates: true });
   wsRoutine['!cols'] = [
-    { wch: 12 }, { wch: 15 }, { wch: 25 }, { wch: 18 }, { wch: 32 },
+    { wch: 14 }, { wch: 12 }, { wch: 15 }, { wch: 25 }, { wch: 18 }, { wch: 32 },
     { wch: 14 }, { wch: 14 }, { wch: 18 }, { wch: 15 }, { wch: 14 },
     { wch: 12 }, { wch: 15 }
   ];
   XLSX.utils.book_append_sheet(wb, wsRoutine, 'Rutina y Progreso');
 
   // Sheet 2: Detailed History
-  const historyRows = program.history.map(h => ({
-    Fecha: h.date,
-    Día: h.dayName,
-    Rutina: h.routineTitle,
-    Ejercicio: h.exerciseName,
-    'Grupo Muscular': h.muscleGroup,
-    'Serie #': h.setNumber,
-    'Peso (kg)': h.weight,
-    Repeticiones: h.reps,
-    '1RM Estimado (kg)': h.estimated1RM,
-    'Volumen (kg x reps)': h.volume
-  }));
+  const historyRows = program.history.map(h => {
+    const parsedDate = parseToDate(h.date);
+    const dateObj = parsedDate && !isNaN(parsedDate.getTime()) ? parsedDate : new Date();
 
-  const wsHistory = XLSX.utils.json_to_sheet(historyRows.length > 0 ? historyRows : [
-    { Fecha: new Date().toISOString().split('T')[0], Nota: 'Aún no hay historial de entrenamientos registrado' }
-  ]);
+    return {
+      Fecha: dateObj,
+      Día: h.dayName,
+      Rutina: h.routineTitle,
+      Ejercicio: h.exerciseName,
+      'Grupo Muscular': h.muscleGroup,
+      'Serie #': h.setNumber,
+      'Peso (kg)': h.weight,
+      Repeticiones: h.reps,
+      '1RM Estimado (kg)': h.estimated1RM,
+      'Volumen (kg x reps)': h.volume
+    };
+  });
+
+  const wsHistory = XLSX.utils.json_to_sheet(
+    historyRows.length > 0
+      ? historyRows
+      : [{ Fecha: new Date(), Nota: 'Aún no hay historial de entrenamientos registrado' }],
+    { cellDates: true }
+  );
+
   wsHistory['!cols'] = [
-    { wch: 12 }, { wch: 12 }, { wch: 20 }, { wch: 30 }, { wch: 18 },
+    { wch: 14 }, { wch: 12 }, { wch: 20 }, { wch: 30 }, { wch: 18 },
     { wch: 10 }, { wch: 12 }, { wch: 14 }, { wch: 18 }, { wch: 20 }
   ];
   XLSX.utils.book_append_sheet(wb, wsHistory, 'Historial Detallado');
+
+  // Format all Date cells in both worksheets to standard date format 'dd/mm/yyyy'
+  [wsRoutine, wsHistory].forEach(ws => {
+    Object.keys(ws).forEach(cellRef => {
+      if (cellRef.startsWith('!')) return;
+      const cell = ws[cellRef];
+      if (cell && (cell.t === 'd' || cell.v instanceof Date)) {
+        cell.z = 'dd/mm/yyyy';
+      }
+    });
+  });
 
   // Write file and trigger download
   const safeName = program.fileName.endsWith('.xlsx') ? program.fileName.replace('.xlsx', '_Actualizado.xlsx') : `${program.fileName}_Actualizado.xlsx`;
