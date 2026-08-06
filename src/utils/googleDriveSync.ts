@@ -27,41 +27,48 @@ export async function checkDriveStatus(): Promise<DriveAuthStatus> {
 }
 
 export async function loginWithDrive(): Promise<boolean> {
-  try {
-    const res = await fetch('/api/auth/google/url');
-    const data = await res.json();
+  const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || window.innerWidth < 768;
 
-    if (!res.ok || !data.authUrl) {
-      alert(`Error al conectar con Google Drive: ${data.error || 'No se pudo generar la URL de inicio de sesión.'}`);
-      return false;
-    }
-
-    // Detect mobile device or popup block
-    const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || window.innerWidth < 768;
-
-    if (isMobile) {
-      // Direct full page redirect on mobile for maximum reliability
-      window.location.href = data.authUrl;
-      return false;
-    }
-
-    // Desktop popup flow
+  let popup: Window | null = null;
+  if (!isMobile) {
+    // Open blank popup synchronously on user click to bypass browser popup blockers
     const width = 520;
     const height = 650;
     const left = window.screen.width / 2 - width / 2;
     const top = window.screen.height / 2 - height / 2;
-
-    const popup = window.open(
-      data.authUrl,
+    popup = window.open(
+      'about:blank',
       'GoogleDriveAuth',
       `width=${width},height=${height},top=${top},left=${left},scrollbars=yes`
     );
+  }
 
-    if (!popup) {
-      // If popup blocked, fallback to direct redirect
+  try {
+    const res = await fetch('/api/auth/google/url');
+    let data: any = {};
+    try {
+      data = await res.json();
+    } catch (e) {
+      // Catch JSON parse errors (e.g. if Vercel returned HTML 404/500 page)
+    }
+
+    if (!res.ok || !data.authUrl) {
+      if (popup && !popup.closed) popup.close();
+      const errorMsg = data.error || (res.status === 404
+        ? 'El servidor backend de Vercel no respondió en /api/auth/google/url (verifica tu configuración en Vercel).'
+        : 'No se pudo generar la URL de autenticación con Google Drive.');
+      alert(`Error al conectar con Google Drive: ${errorMsg}`);
+      return false;
+    }
+
+    if (isMobile || !popup) {
+      // Direct full page redirect for mobile or if popup was blocked
       window.location.href = data.authUrl;
       return false;
     }
+
+    // Redirect the pre-opened popup to Google's OAuth URL
+    popup.location.href = data.authUrl;
 
     return new Promise((resolve) => {
       let resolved = false;
@@ -77,7 +84,7 @@ export async function loginWithDrive(): Promise<boolean> {
 
       window.addEventListener('message', handleMessage);
 
-      // Fallback check if user closes popup manually
+      // Check if popup was closed by user
       const timer = setInterval(() => {
         if (popup && popup.closed) {
           clearInterval(timer);
@@ -90,6 +97,8 @@ export async function loginWithDrive(): Promise<boolean> {
     });
   } catch (e) {
     console.error('Error initiating Drive login:', e);
+    if (popup && !popup.closed) popup.close();
+    alert('Error de conexión al intentar iniciar sesión con Google Drive.');
     return false;
   }
 }
