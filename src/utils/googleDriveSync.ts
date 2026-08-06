@@ -31,8 +31,8 @@ export async function loginWithDrive(): Promise<boolean> {
     const res = await fetch('/api/auth/google/url');
     const data = await res.json();
 
-    if (!data.authUrl) {
-      alert('Error al obtener la URL de autenticación de Google Drive.');
+    if (!res.ok || !data.authUrl) {
+      alert(`Error al conectar con Google Drive: ${data.error || 'No se pudo generar la URL de inicio de sesión.'}`);
       return false;
     }
 
@@ -104,7 +104,7 @@ export async function logoutDrive(): Promise<boolean> {
   }
 }
 
-export async function syncToDrive(program: GymProgram): Promise<{ success: boolean; lastSynced?: string; error?: string; webViewLink?: string }> {
+export async function syncToDrive(program: GymProgram): Promise<{ success: boolean; lastSynced?: string; error?: string; webViewLink?: string; apiDisabled?: boolean; enableUrl?: string }> {
   try {
     const res = await fetch('/api/drive/sync', {
       method: 'POST',
@@ -117,7 +117,12 @@ export async function syncToDrive(program: GymProgram): Promise<{ success: boole
 
     const data = await res.json();
     if (!res.ok) {
-      return { success: false, error: data.error || 'Error al guardar en Google Drive' };
+      return {
+        success: false,
+        error: data.error || 'Error al guardar en Google Drive',
+        apiDisabled: data.apiDisabled,
+        enableUrl: data.enableUrl,
+      };
     }
 
     return {
@@ -131,13 +136,18 @@ export async function syncToDrive(program: GymProgram): Promise<{ success: boole
   }
 }
 
-export async function loadFromDrive(): Promise<{ success: boolean; programData?: GymProgram; error?: string }> {
+export async function loadFromDrive(): Promise<{ success: boolean; programData?: GymProgram; error?: string; apiDisabled?: boolean; enableUrl?: string }> {
   try {
     const res = await fetch('/api/drive/load');
     const data = await res.json();
 
     if (!res.ok) {
-      return { success: false, error: data.error || 'No se pudo cargar desde Google Drive' };
+      return {
+        success: false,
+        error: data.error || 'No se pudo cargar desde Google Drive',
+        apiDisabled: data.apiDisabled,
+        enableUrl: data.enableUrl,
+      };
     }
 
     let programData = data.programData;
@@ -160,5 +170,14 @@ export async function loadFromDrive(): Promise<{ success: boolean; programData?:
   } catch (e: any) {
     console.error('Error loading from Drive:', e);
     return { success: false, error: e.message || 'Error de red' };
+  }
+}
+
+export async function debugDriveSync(): Promise<any> {
+  try {
+    const res = await fetch('/api/drive/debug');
+    return await res.json();
+  } catch (e: any) {
+    return { status: 'error', message: e.message || 'Error de red al conectar al servidor' };
   }
 }

@@ -12,6 +12,7 @@ import { AddExerciseModal } from './components/AddExerciseModal';
 import { INITIAL_SAMPLE_PROGRAM } from './utils/sampleData';
 import { exportProgramToExcel } from './utils/excelExporter';
 import { syncProgramHistory } from './utils/historySync';
+import { checkDriveStatus, syncToDrive } from './utils/googleDriveSync';
 import { GymProgram, WorkoutDay, Exercise } from './types';
 
 const STORAGE_KEY = 'gym_progress_program_v2';
@@ -63,12 +64,28 @@ export default function App() {
     setTimeout(() => setToastMessage(null), 3000);
   };
 
-  const handleProgramLoaded = (newProgram: GymProgram) => {
+  const handleProgramLoaded = async (newProgram: GymProgram) => {
     setProgram(newProgram);
     if (newProgram.workoutDays.length > 0) {
       setActiveDayId(getFirstUncompletedDayId(newProgram));
     }
     showToast(`✅ ¡Archivo "${newProgram.fileName}" cargado correctamente!`);
+
+    // Auto-sync newly loaded Excel to Google Drive if connected
+    try {
+      const st = await checkDriveStatus();
+      if (st.authenticated) {
+        showToast(`☁️ Guardando "${newProgram.fileName}" en Google Drive...`);
+        const syncRes = await syncToDrive(newProgram);
+        if (syncRes.success) {
+          showToast(`☁️ ¡"${newProgram.fileName}" respaldado exitosamente en Google Drive!`);
+        }
+      } else {
+        showToast(`💡 Tip: Puedes conectar Google Drive para respaldar este Excel en la nube.`);
+      }
+    } catch (e) {
+      console.error('Error auto-syncing Excel to Drive:', e);
+    }
   };
 
   const handleLoadSample = () => {

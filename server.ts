@@ -13,8 +13,8 @@ app.use(cookieParser());
 
 // OAuth configuration helper
 function getOAuth2Client(req: express.Request) {
-  const clientId = process.env.CLIENT_ID || process.env.GOOGLE_CLIENT_ID;
-  const clientSecret = process.env.CLIENT_SECRET || process.env.GOOGLE_CLIENT_SECRET;
+  const clientId = process.env.CLIENT_ID || process.env.GOOGLE_CLIENT_ID || process.env.OAUTH_CLIENT_ID || process.env.GOOGLE_OAUTH_CLIENT_ID;
+  const clientSecret = process.env.CLIENT_SECRET || process.env.GOOGLE_CLIENT_SECRET || process.env.OAUTH_CLIENT_SECRET || process.env.GOOGLE_OAUTH_CLIENT_SECRET;
 
   let appUrl = process.env.APP_URL;
   if (!appUrl || appUrl.includes('MY_APP_URL')) {
@@ -113,7 +113,7 @@ app.get('/api/auth/google/callback', async (req, res) => {
     res.cookie('gd_tokens', JSON.stringify(tokens), {
       httpOnly: true,
       secure: true,
-      sameSite: 'lax',
+      sameSite: 'none',
       maxAge: 30 * 24 * 60 * 60 * 1000,
     });
 
@@ -155,8 +155,102 @@ app.get('/api/auth/google/callback', async (req, res) => {
 
 // 4. Logout Endpoint
 app.post('/api/auth/google/logout', (req, res) => {
-  res.clearCookie('gd_tokens');
+  res.clearCookie('gd_tokens', {
+    httpOnly: true,
+    secure: true,
+    sameSite: 'none',
+  });
   res.json({ success: true });
+});
+
+function parseDriveError(error: any) {
+  const msg = error?.response?.data?.error?.message || error?.message || String(error);
+  if (msg.includes('Google Drive API has not been used') || msg.includes('is disabled') || msg.includes('drive.googleapis.com')) {
+    const urlMatch = msg.match(/https:\/\/[^\s]+/);
+    const enableUrl = urlMatch ? urlMatch[0].replace(/[.,]$/, '') : 'https://console.cloud.google.com/apis/library/drive.googleapis.com';
+    return {
+      apiDisabled: true,
+      enableUrl,
+      error: 'La API de Google Drive no está habilitada en tu proyecto de Google Cloud.',
+    };
+  }
+  return {
+    apiDisabled: false,
+    error: msg,
+  };
+}
+
+// 4b. Diagnostic / Debug Endpoint
+app.get('/api/drive/debug', async (req, res) => {
+  const oauth2Client = getOAuth2Client(req);
+  if (!oauth2Client) {
+    return res.json({
+      status: 'error',
+      message: 'OAuth de Google no está configurado en el servidor.',
+      hasCookie: false,
+      authenticated: false,
+    });
+  }
+
+  const tokensCookie = req.cookies.gd_tokens;
+  if (!tokensCookie) {
+    return res.json({
+      status: 'unauthenticated',
+      message: 'No existe sesión de Google Drive guardada en este navegador.',
+      hasCookie: false,
+      authenticated: false,
+    });
+  }
+
+  try {
+    const tokens = typeof tokensCookie === 'string' ? JSON.parse(tokensCookie) : tokensCookie;
+    oauth2Client.setCredentials(tokens);
+
+    const oauth2 = google.oauth2({ version: 'v2', auth: oauth2Client });
+    const userInfo = await oauth2.userinfo.get();
+
+    const drive = google.drive({ version: 'v3', auth: oauth2Client });
+    const backupFileName = 'Gimnasio_Rutina_Backup_AutoSync.json';
+
+    const searchRes = await drive.files.list({
+      q: `name = '${backupFileName}' and trashed = false`,
+      fields: 'files(id, name, modifiedTime, size, webViewLink)',
+      orderBy: 'modifiedTime desc',
+      spaces: 'drive',
+    });
+
+    const file = searchRes.data.files && searchRes.data.files[0] ? searchRes.data.files[0] : null;
+
+    return res.json({
+      status: 'ok',
+      hasCookie: true,
+      authenticated: true,
+      user: {
+        name: userInfo.data.name,
+        email: userInfo.data.email,
+      },
+      backupFile: file ? {
+        id: file.id,
+        name: file.name,
+        modifiedTime: file.modifiedTime,
+        size: file.size,
+        webViewLink: file.webViewLink,
+      } : null,
+      message: file ? '✅ Archivo de respaldo encontrado en tu Google Drive.' : '⚠️ Conectado a Google Drive, pero aún no has creado un respaldo (haz clic en Guardar en Drive).',
+    });
+  } catch (error: any) {
+    const parsed = parseDriveError(error);
+    return res.json({
+      status: 'error',
+      hasCookie: true,
+      authenticated: false,
+      apiDisabled: parsed.apiDisabled,
+      enableUrl: parsed.enableUrl,
+      message: parsed.apiDisabled
+        ? '⚠️ La API de Google Drive no está activada en tu proyecto de Google Cloud.'
+        : `Error al verificar cuenta con Google: ${parsed.error}`,
+    });
+  }
 });
 
 // 5. Drive Sync Endpoint (Saves program backup JSON to Drive)
@@ -237,7 +331,12 @@ app.post('/api/drive/sync', async (req, res) => {
     });
   } catch (error: any) {
     console.error('Error syncing to Google Drive:', error);
-    return res.status(500).json({ error: `Error al sincronizar con Google Drive: ${error.message || error}` });
+    const parsed = parseDriveError(error);
+    return res.status(500).json({
+      error: `Error al sincronizar con Google Drive: ${parsed.error}`,
+      apiDisabled: parsed.apiDisabled,
+      enableUrl: parsed.enableUrl,
+    });
   }
 });
 
@@ -293,7 +392,12 @@ app.get('/api/drive/load', async (req, res) => {
     });
   } catch (error: any) {
     console.error('Error loading from Google Drive:', error);
-    return res.status(500).json({ error: `Error al cargar desde Google Drive: ${error.message || error}` });
+    const parsed = parseDriveError(error);
+    return res.status(500).json({
+      error: `Error al cargar desde Google Drive: ${parsed.error}`,
+      apiDisabled: parsed.apiDisabled,
+      enableUrl: parsed.enableUrl,
+    });
   }
 });
 
