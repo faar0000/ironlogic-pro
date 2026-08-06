@@ -34,15 +34,18 @@ function getOAuth2Client(req: express.Request) {
     return null;
   }
 
-  let appUrl = process.env.APP_URL ||
-               (process.env.VERCEL_PROJECT_PRODUCTION_URL ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}` : undefined) ||
-               (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : undefined);
+  let appUrl = process.env.APP_URL;
 
   if (!appUrl || appUrl.includes('MY_APP_URL')) {
     const rawProto = req.headers['x-forwarded-proto'];
     const protocol = Array.isArray(rawProto) ? rawProto[0] : (rawProto || req.protocol || 'https');
-    const host = req.headers['x-forwarded-host'] || req.headers.host || 'localhost:3000';
-    appUrl = `${protocol}://${host}`;
+    const host = req.headers['x-forwarded-host'] || req.headers.host;
+    if (host) {
+      appUrl = `${protocol}://${host}`;
+    } else {
+      appUrl = (process.env.VERCEL_PROJECT_PRODUCTION_URL ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}` : undefined) ||
+               (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:3000');
+    }
   }
 
   if (!appUrl.startsWith('http://') && !appUrl.startsWith('https://')) {
@@ -50,7 +53,7 @@ function getOAuth2Client(req: express.Request) {
   }
   appUrl = appUrl.replace(/\/$/, '');
 
-  const redirectUri = `${appUrl}/api/auth/google/callback`;
+  const redirectUri = process.env.REDIRECT_URI || `${appUrl}/api/auth/google/callback`;
 
   try {
     return new google.auth.OAuth2(clientId, clientSecret, redirectUri);
