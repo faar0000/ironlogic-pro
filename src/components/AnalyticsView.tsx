@@ -3,9 +3,10 @@ import {
   ResponsiveContainer, LineChart, Line, BarChart, Bar, XAxis, YAxis, 
   Tooltip, CartesianGrid, Legend, AreaChart, Area 
 } from 'recharts';
-import { TrendingUp, Dumbbell, Award, Flame, Calendar, Sparkles } from 'lucide-react';
+import { TrendingUp, Dumbbell, Award, Flame, Calendar, Sparkles, Equal, ShieldAlert } from 'lucide-react';
 import { GymProgram } from '../types';
 import { getExerciseProgressHistory, getVolumeByMuscleGroup, getPersonalRecords } from '../utils/analytics';
+import { getOverloadRecommendation } from '../utils/progressiveOverload';
 
 interface AnalyticsViewProps {
   program: GymProgram;
@@ -187,6 +188,75 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({ program }) => {
             Registra tu primera sesión para ver la distribución muscular.
           </div>
         )}
+      </div>
+
+      {/* Section 3: Progressive Overload AI Trainer Recommendations Summary */}
+      <div className="bg-[#0f0f0f] border border-white/10 rounded-2xl p-6 shadow-xl">
+        <div className="mb-6">
+          <div className="flex items-center space-x-2">
+            <Sparkles className="w-5 h-5 text-blue-400" />
+            <h3 className="text-lg font-semibold text-white">Recomendaciones de Sobrecarga Progresiva</h3>
+          </div>
+          <p className="text-xs text-white/40 mt-0.5">Análisis inteligente basado en tu desempeño de la semana pasada para tu siguiente sesión.</p>
+        </div>
+
+        <div className="overflow-x-auto">
+          <table className="w-full text-left text-xs">
+            <thead>
+              <tr className="text-white/40 border-b border-white/10 text-[11px] uppercase tracking-wider">
+                <th className="py-2.5 px-3">Ejercicio</th>
+                <th className="py-2.5 px-3">Semana Pasada</th>
+                <th className="py-2.5 px-3">Objetivo</th>
+                <th className="py-2.5 px-3">Diagnóstico Entrenador</th>
+                <th className="py-2.5 px-3">Carga Sugerida</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-white/5">
+              {program.workoutDays.flatMap(d => d.exercises).map((ex) => {
+                const prev = ex.previousLogs;
+                if (!prev) {
+                  return (
+                    <tr key={ex.id} className="hover:bg-white/5">
+                      <td className="py-3 px-3 font-medium text-white">
+                        {ex.name}
+                        <span className="text-[10px] text-white/40 block">{ex.muscleGroup}</span>
+                      </td>
+                      <td className="py-3 px-3 text-white/40 font-mono">Sin log</td>
+                      <td className="py-3 px-3 text-white/70">{ex.targetReps} reps</td>
+                      <td className="py-3 px-3 text-white/40">Pendiente de registro</td>
+                      <td className="py-3 px-3 text-white/40 font-mono">-</td>
+                    </tr>
+                  );
+                }
+
+                const advice = getOverloadRecommendation(prev.weight, prev.reps, ex.targetReps);
+
+                return (
+                  <tr key={ex.id} className="hover:bg-white/5 transition-colors">
+                    <td className="py-3 px-3 font-medium text-white">
+                      {ex.name}
+                      <span className="text-[10px] text-white/40 block">{ex.muscleGroup}</span>
+                    </td>
+                    <td className="py-3 px-3 font-mono text-white">
+                      {prev.weight} kg × {prev.reps} reps
+                    </td>
+                    <td className="py-3 px-3 text-white/70">
+                      {ex.targetReps} reps
+                    </td>
+                    <td className="py-3 px-3">
+                      <span className={`inline-flex items-center px-2 py-0.5 rounded text-[11px] font-bold ${advice.badgeTextColor} ${advice.badgeBg} border ${advice.badgeBorder}`}>
+                        {advice.badgeText}
+                      </span>
+                    </td>
+                    <td className="py-3 px-3 font-mono font-bold text-white">
+                      {advice.suggestedWeight} kg
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
       </div>
 
     </div>

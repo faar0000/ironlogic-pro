@@ -117,8 +117,9 @@ export const AddExerciseModal: React.FC<AddExerciseModalProps> = ({
                 type="number"
                 min="1"
                 max="10"
-                value={sets}
-                onChange={(e) => setSets(parseInt(e.target.value) || 3)}
+                value={sets === 0 ? '' : sets}
+                onChange={(e) => setSets(e.target.value === '' ? 0 : parseInt(e.target.value, 10))}
+                onFocus={(e) => e.target.select()}
                 className="w-full bg-[#0a0a0a] border border-white/10 rounded-xl px-3 py-2 text-sm text-white font-mono font-medium text-center focus:ring-1 focus:ring-blue-500 focus:outline-none"
               />
             </div>
@@ -129,6 +130,7 @@ export const AddExerciseModal: React.FC<AddExerciseModalProps> = ({
                 type="text"
                 value={reps}
                 onChange={(e) => setReps(e.target.value)}
+                onFocus={(e) => e.target.select()}
                 placeholder="10"
                 className="w-full bg-[#0a0a0a] border border-white/10 rounded-xl px-3 py-2 text-sm text-white font-mono font-medium text-center focus:ring-1 focus:ring-blue-500 focus:outline-none"
               />
@@ -139,8 +141,9 @@ export const AddExerciseModal: React.FC<AddExerciseModalProps> = ({
               <input
                 type="number"
                 step="0.5"
-                value={weight}
-                onChange={(e) => setWeight(parseFloat(e.target.value) || 0)}
+                value={weight === 0 ? '' : weight}
+                onChange={(e) => setWeight(e.target.value === '' ? 0 : parseFloat(e.target.value))}
+                onFocus={(e) => e.target.select()}
                 className="w-full bg-[#0a0a0a] border border-white/10 rounded-xl px-3 py-2 text-sm text-white font-mono font-medium text-center focus:ring-1 focus:ring-blue-500 focus:outline-none"
               />
             </div>

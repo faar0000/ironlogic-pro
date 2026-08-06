@@ -5,6 +5,7 @@ import {
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { WorkoutDay, Exercise, SetLog } from '../types';
+import { OverloadAdvisorCard } from './OverloadAdvisorCard';
 
 interface WorkoutLoggerProps {
   day: WorkoutDay;
@@ -166,6 +167,19 @@ export const WorkoutLogger: React.FC<WorkoutLoggerProps> = ({
     setTimeout(() => setCopiedExerciseId(null), 2000);
   };
 
+  const handleApplySuggestedWeight = (exerciseId: string, weight: number) => {
+    const updatedExercises = day.exercises.map(ex => {
+      if (ex.id !== exerciseId) return ex;
+      const updatedSets = ex.currentSets.map(s => ({
+        ...s,
+        weight: weight
+      }));
+      return { ...ex, currentSets: updatedSets };
+    });
+
+    onUpdateDay({ ...day, exercises: updatedExercises });
+  };
+
   return (
     <div className="space-y-6">
 
@@ -295,6 +309,12 @@ export const WorkoutLogger: React.FC<WorkoutLoggerProps> = ({
                 )}
               </div>
 
+              {/* Overload Advisor AI Card */}
+              <OverloadAdvisorCard
+                exercise={exercise}
+                onApplyWeight={handleApplySuggestedWeight}
+              />
+
               {/* Sets Table */}
               <div className="overflow-x-auto">
                 <table className="w-full text-left text-xs">
@@ -340,8 +360,10 @@ export const WorkoutLogger: React.FC<WorkoutLoggerProps> = ({
                               <input
                                 type="number"
                                 step="0.5"
-                                value={setLog.weight}
-                                onChange={(e) => handleSetChange(exercise.id, setLog.id, 'weight', parseFloat(e.target.value) || 0)}
+                                placeholder="0"
+                                value={setLog.weight === 0 ? '' : setLog.weight}
+                                onChange={(e) => handleSetChange(exercise.id, setLog.id, 'weight', e.target.value === '' ? 0 : parseFloat(e.target.value))}
+                                onFocus={(e) => e.target.select()}
                                 className="w-16 bg-[#0a0a0a] border border-white/10 rounded-lg py-1 px-2 text-center text-white font-mono font-medium text-xs focus:ring-1 focus:ring-blue-500 focus:outline-none"
                               />
                               <button
@@ -364,8 +386,10 @@ export const WorkoutLogger: React.FC<WorkoutLoggerProps> = ({
                               </button>
                               <input
                                 type="number"
-                                value={setLog.reps}
-                                onChange={(e) => handleSetChange(exercise.id, setLog.id, 'reps', parseInt(e.target.value) || 0)}
+                                placeholder="0"
+                                value={setLog.reps === 0 ? '' : setLog.reps}
+                                onChange={(e) => handleSetChange(exercise.id, setLog.id, 'reps', e.target.value === '' ? 0 : parseInt(e.target.value, 10))}
+                                onFocus={(e) => e.target.select()}
                                 className="w-14 bg-[#0a0a0a] border border-white/10 rounded-lg py-1 px-2 text-center text-white font-mono font-medium text-xs focus:ring-1 focus:ring-blue-500 focus:outline-none"
                               />
                               <button

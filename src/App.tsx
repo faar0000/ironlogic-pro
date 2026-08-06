@@ -219,6 +219,7 @@ export default function App() {
       <RestTimerModal
         isOpen={isRestTimerOpen}
         onClose={() => setIsRestTimerOpen(false)}
+        onOpen={() => setIsRestTimerOpen(true)}
       />
 
       <AddExerciseModal
