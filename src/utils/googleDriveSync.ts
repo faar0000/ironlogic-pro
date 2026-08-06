@@ -46,18 +46,29 @@ export async function loginWithDrive(): Promise<boolean> {
   try {
     const res = await fetch('/api/auth/google/url');
     let data: any = {};
+    let rawText = '';
     try {
-      data = await res.json();
+      rawText = await res.text();
+      data = JSON.parse(rawText);
     } catch (e) {
-      // Catch JSON parse errors (e.g. if Vercel returned HTML 404/500 page)
+      // Catch JSON parse errors (e.g. if server returned HTML 404/500 page)
     }
 
     if (!res.ok || !data.authUrl) {
       if (popup && !popup.closed) popup.close();
-      const errorMsg = data.error || (res.status === 404
-        ? 'El servidor backend de Vercel no respondió en /api/auth/google/url (verifica tu configuración en Vercel).'
-        : 'No se pudo generar la URL de autenticación con Google Drive.');
-      alert(`Error al conectar con Google Drive: ${errorMsg}`);
+
+      let errorMsg = data.error;
+      if (!errorMsg) {
+        if (res.status === 404) {
+          errorMsg = 'Servidor backend no encontrado (404). Verifica que las funciones serverless de Vercel estén desplegadas.';
+        } else if (rawText && rawText.length < 300) {
+          errorMsg = `Error ${res.status}: ${rawText}`;
+        } else {
+          errorMsg = `Error HTTP ${res.status} (${res.statusText || 'Error desconocido'})`;
+        }
+      }
+
+      alert(`Error al conectar con Google Drive:\n\n${errorMsg}`);
       return false;
     }
 

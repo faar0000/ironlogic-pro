@@ -10,16 +10,36 @@ const PORT = 3000;
 app.use(express.json({ limit: '10mb' }));
 app.use(cookieParser());
 
+// Normalize URLs on Vercel if /api prefix is stripped
+app.use((req, res, next) => {
+  if (process.env.VERCEL && !req.url.startsWith('/api') && (req.url.startsWith('/auth') || req.url.startsWith('/drive'))) {
+    req.url = `/api${req.url}`;
+  }
+  next();
+});
+
 // OAuth configuration helper
 function getOAuth2Client(req: express.Request) {
-  const clientId = process.env.CLIENT_ID || process.env.GOOGLE_CLIENT_ID || process.env.OAUTH_CLIENT_ID || process.env.GOOGLE_OAUTH_CLIENT_ID;
-  const clientSecret = process.env.CLIENT_SECRET || process.env.GOOGLE_CLIENT_SECRET || process.env.OAUTH_CLIENT_SECRET || process.env.GOOGLE_OAUTH_CLIENT_SECRET;
+  const clientId = process.env.CLIENT_ID ||
+                   process.env.GOOGLE_CLIENT_ID ||
+                   process.env.OAUTH_CLIENT_ID ||
+                   process.env.GOOGLE_OAUTH_CLIENT_ID ||
+                   process.env.VITE_GOOGLE_CLIENT_ID;
 
-  let appUrl = process.env.APP_URL;
+  const clientSecret = process.env.CLIENT_SECRET ||
+                       process.env.GOOGLE_CLIENT_SECRET ||
+                       process.env.OAUTH_CLIENT_SECRET ||
+                       process.env.GOOGLE_OAUTH_CLIENT_SECRET ||
+                       process.env.VITE_GOOGLE_CLIENT_SECRET;
+
+  let appUrl = process.env.APP_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : undefined);
   if (!appUrl || appUrl.includes('MY_APP_URL')) {
     const protocol = req.headers['x-forwarded-proto'] || req.protocol || 'http';
     const host = req.headers.host || 'localhost:3000';
     appUrl = `${protocol}://${host}`;
+  }
+  if (!appUrl.startsWith('http://') && !appUrl.startsWith('https://')) {
+    appUrl = `https://${appUrl}`;
   }
   // Ensure no trailing slash
   appUrl = appUrl.replace(/\/$/, '');
@@ -34,7 +54,7 @@ function getOAuth2Client(req: express.Request) {
 }
 
 // 1. Auth Status Endpoint
-app.get('/api/auth/google/status', async (req, res) => {
+app.get(['/api/auth/google/status', '/auth/google/status'], async (req, res) => {
   const oauth2Client = getOAuth2Client(req);
   if (!oauth2Client) {
     return res.json({
@@ -74,11 +94,11 @@ app.get('/api/auth/google/status', async (req, res) => {
 });
 
 // 2. Auth URL Endpoint
-app.get('/api/auth/google/url', (req, res) => {
+app.get(['/api/auth/google/url', '/auth/google/url'], (req, res) => {
   const oauth2Client = getOAuth2Client(req);
   if (!oauth2Client) {
     return res.status(400).json({
-      error: 'OAuth no configurado en Vercel. Faltan las variables de entorno CLIENT_ID y CLIENT_SECRET en el panel de Vercel (Settings > Environment Variables).',
+      error: 'OAuth no configurado en Vercel. Asegúrate de añadir CLIENT_ID y CLIENT_SECRET en Environment Variables de Vercel y hacer un Redeploy.',
       missingEnvVars: true
     });
   }
@@ -97,7 +117,7 @@ app.get('/api/auth/google/url', (req, res) => {
 });
 
 // 3. Auth Callback Endpoint
-app.get('/api/auth/google/callback', async (req, res) => {
+app.get(['/api/auth/google/callback', '/auth/google/callback'], async (req, res) => {
   const code = req.query.code as string;
   if (!code) {
     return res.status(400).send('Código de autorización no proporcionado.');
