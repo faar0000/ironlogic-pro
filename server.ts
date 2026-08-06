@@ -2,7 +2,6 @@ import express from 'express';
 import path from 'path';
 import cookieParser from 'cookie-parser';
 import { google } from 'googleapis';
-import { createServer as createViteServer } from 'vite';
 import { Readable } from 'stream';
 
 const app = express();
@@ -78,7 +77,10 @@ app.get('/api/auth/google/status', async (req, res) => {
 app.get('/api/auth/google/url', (req, res) => {
   const oauth2Client = getOAuth2Client(req);
   if (!oauth2Client) {
-    return res.status(400).json({ error: 'OAuth no configurado' });
+    return res.status(400).json({
+      error: 'OAuth no configurado en Vercel. Faltan las variables de entorno CLIENT_ID y CLIENT_SECRET en el panel de Vercel (Settings > Environment Variables).',
+      missingEnvVars: true
+    });
   }
 
   const url = oauth2Client.generateAuthUrl({
@@ -403,6 +405,7 @@ app.get('/api/drive/load', async (req, res) => {
 
 async function startServer() {
   if (process.env.NODE_ENV !== 'production') {
+    const { createServer: createViteServer } = await import('vite');
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: 'spa',
