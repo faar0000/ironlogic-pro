@@ -11,7 +11,7 @@ import { AddExerciseModal } from './components/AddExerciseModal';
 
 import { INITIAL_SAMPLE_PROGRAM } from './utils/sampleData';
 import { exportProgramToExcel } from './utils/excelExporter';
-import { syncProgramHistory } from './utils/historySync';
+import { syncProgramHistory, checkAndPerformWeeklyRollover, performRollover } from './utils/historySync';
 import { checkDriveStatus, syncToDrive } from './utils/googleDriveSync';
 import { GymProgram, WorkoutDay, Exercise } from './types';
 
@@ -62,6 +62,26 @@ export default function App() {
   const showToast = (msg: string) => {
     setToastMessage(msg);
     setTimeout(() => setToastMessage(null), 3000);
+  };
+
+  // Check for automatic weekly rollover on startup
+  useEffect(() => {
+    const { program: updatedProgram, rolledOver } = checkAndPerformWeeklyRollover(program);
+    if (rolledOver) {
+      setProgram(updatedProgram);
+      showToast('📅 ¡Nueva semana iniciada! Tu progreso previo se guardó en el historial.');
+    }
+  }, []);
+
+  const handleStartNewWeek = () => {
+    if (window.confirm('¿Deseas guardar todo el progreso actual de esta semana en el historial e iniciar un nuevo ciclo semanal?')) {
+      const rolledOverProgram = performRollover(program);
+      setProgram(rolledOverProgram);
+      if (rolledOverProgram.workoutDays.length > 0) {
+        setActiveDayId(rolledOverProgram.workoutDays[0].id);
+      }
+      showToast('🚀 ¡Nuevo ciclo semanal iniciado! Cargas y repeticiones de la semana pasada actualizadas.');
+    }
   };
 
   const handleProgramLoaded = async (newProgram: GymProgram) => {
@@ -176,6 +196,7 @@ export default function App() {
               workoutDays={program.workoutDays}
               activeDayId={activeDayId}
               onSelectDay={setActiveDayId}
+              onStartNewWeek={handleStartNewWeek}
             />
 
             {/* Selected Workout Logger */}

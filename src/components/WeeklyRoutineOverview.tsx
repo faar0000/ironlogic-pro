@@ -1,29 +1,46 @@
 import React from 'react';
-import { Calendar, Flame, Coffee, CheckCircle, Dumbbell, ChevronRight } from 'lucide-react';
+import { Calendar, Flame, Coffee, CheckCircle, Dumbbell, ChevronRight, RotateCcw } from 'lucide-react';
 import { WorkoutDay } from '../types';
 
 interface WeeklyRoutineOverviewProps {
   workoutDays: WorkoutDay[];
   activeDayId: string;
   onSelectDay: (dayId: string) => void;
+  onStartNewWeek?: () => void;
 }
 
 export const WeeklyRoutineOverview: React.FC<WeeklyRoutineOverviewProps> = ({
   workoutDays,
   activeDayId,
   onSelectDay,
+  onStartNewWeek,
 }) => {
   return (
     <div className="bg-[#0f0f0f] border border-white/10 rounded-2xl p-5 mb-6 shadow-xl">
-      <div className="flex items-center justify-between mb-4">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
         <div className="flex items-center space-x-2">
           <Calendar className="w-5 h-5 text-blue-400" />
           <h2 className="text-base font-semibold text-white tracking-wide">Estructura Semanal Detectada</h2>
         </div>
-        <span className="text-xs text-white/50 font-mono bg-[#0a0a0a] px-3 py-1 rounded-full border border-white/10">
-          {workoutDays.filter(d => d.dayType === 'training').length} Entrenamientos · {workoutDays.filter(d => d.dayType === 'rest').length} Descansos
-        </span>
+
+        <div className="flex items-center space-x-2 self-start sm:self-auto">
+          <span className="text-xs text-white/50 font-mono bg-[#0a0a0a] px-3 py-1 rounded-full border border-white/10">
+            {workoutDays.filter(d => d.dayType === 'training').length} Entrenamientos · {workoutDays.filter(d => d.dayType === 'rest').length} Descansos
+          </span>
+
+          {onStartNewWeek && (
+            <button
+              onClick={onStartNewWeek}
+              className="inline-flex items-center px-2.5 py-1 text-xs font-semibold text-blue-300 bg-blue-600/20 hover:bg-blue-600/30 border border-blue-500/30 rounded-lg transition-colors"
+              title="Guardar progreso actual en historial e iniciar un nuevo ciclo semanal"
+            >
+              <RotateCcw className="w-3.5 h-3.5 mr-1 text-blue-400" />
+              Nueva Semana
+            </button>
+          )}
+        </div>
       </div>
+
 
       {/* Grid of 7 Days */}
       <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3">

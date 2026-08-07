@@ -92,3 +92,89 @@ export function syncProgramHistory(program: GymProgram): GymProgram {
     history: fullHistory,
   };
 }
+
+export function getCurrentRealMonday(): Date {
+  const date = new Date();
+  const day = date.getDay(); // 0 is Sun, 1 is Mon, ..., 6 is Sat
+  const diff = (day === 0 ? -6 : 1 - day);
+  date.setDate(date.getDate() + diff);
+  date.setHours(0, 0, 0, 0);
+  return date;
+}
+
+/**
+ * Perform a week rollover:
+ * 1. Synchronize ending week's completed sets into program.history
+ * 2. Update exercise.previousLogs with last week's best completed performance
+ * 3. Reset exercise.currentSets completed status to false
+ * 4. Update program.lastUpdated to today
+ */
+export function performRollover(program: GymProgram): GymProgram {
+  // 1. Sync completed sets into history
+  const syncedProgram = syncProgramHistory(program);
+  const todayStr = new Date().toISOString().split('T')[0];
+
+  // 2. Archive last week's logs into previousLogs & reset currentSets
+  const updatedWorkoutDays = syncedProgram.workoutDays.map((day) => {
+    const updatedExercises = day.exercises.map((ex) => {
+      const completedSets = ex.currentSets.filter((s) => s.completed && (s.weight > 0 || s.reps > 0));
+
+      let newPreviousLogs = ex.previousLogs;
+      if (completedSets.length > 0) {
+        // Find best set (highest weight, then highest reps)
+        const bestSet = completedSets.reduce((prev, curr) => {
+          if (curr.weight > prev.weight) return curr;
+          if (curr.weight === prev.weight && curr.reps > prev.reps) return curr;
+          return prev;
+        }, completedSets[0]);
+
+        newPreviousLogs = {
+          weight: bestSet.weight,
+          reps: bestSet.reps,
+          date: todayStr,
+          sets: completedSets,
+        };
+      }
+
+      const resetSets = ex.currentSets.map((s) => ({
+        ...s,
+        completed: false,
+      }));
+
+      return {
+        ...ex,
+        previousLogs: newPreviousLogs,
+        currentSets: resetSets,
+      };
+    });
+
+    return {
+      ...day,
+      exercises: updatedExercises,
+    };
+  });
+
+  return {
+    ...syncedProgram,
+    workoutDays: updatedWorkoutDays,
+    lastUpdated: todayStr,
+  };
+}
+
+/**
+ * Automatically checks if real date has crossed into a new Monday.
+ * If so, automatically performs week rollover.
+ */
+export function checkAndPerformWeeklyRollover(program: GymProgram): { program: GymProgram; rolledOver: boolean } {
+  const activeMondayMs = getProgramActiveMonday(program).getTime();
+  const currentMondayMs = getCurrentRealMonday().getTime();
+
+  // If current calendar Monday is strictly after active program Monday
+  if (currentMondayMs > activeMondayMs) {
+    const rolledOverProgram = performRollover(program);
+    return { program: rolledOverProgram, rolledOver: true };
+  }
+
+  return { program, rolledOver: false };
+}
+
