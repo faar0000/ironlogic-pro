@@ -13,6 +13,7 @@ export interface Exercise {
   muscleGroup: string; // e.g., 'Pecho', 'Espalda', 'Pierna', 'Hombros', 'Brazos', 'Core'
   targetSets: number;
   targetReps: string; // e.g., "8-12", "10"
+  hasJointDiscomfort?: boolean; // Joint discomfort / injury flag
   previousLogs?: {
     date: string; // e.g. "2026-07-28" or "Semana pasada"
     weight: number;

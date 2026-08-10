@@ -1,14 +1,16 @@
 import React, { useState } from 'react';
 import { 
   Dumbbell, CheckCircle2, Circle, Plus, Trash2, ArrowRight, History, 
-  Sparkles, Timer, Coffee, Award, AlertCircle, Copy, Check
+  Sparkles, Timer, Coffee, Award, AlertCircle, Copy, Check, ShieldAlert
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
-import { WorkoutDay, Exercise, SetLog } from '../types';
+import { WorkoutDay, Exercise, SetLog, GymProgram } from '../types';
 import { OverloadAdvisorCard } from './OverloadAdvisorCard';
+import { getMostRecentLogForExercise, ExerciseLogRef } from '../utils/progressiveOverload';
 
 interface WorkoutLoggerProps {
   day: WorkoutDay;
+  program?: GymProgram;
   onUpdateDay: (updatedDay: WorkoutDay) => void;
   onOpenRestTimer: () => void;
   onAddExerciseClick: () => void;
@@ -16,11 +18,25 @@ interface WorkoutLoggerProps {
 
 export const WorkoutLogger: React.FC<WorkoutLoggerProps> = ({
   day,
+  program,
   onUpdateDay,
   onOpenRestTimer,
   onAddExerciseClick,
 }) => {
   const [copiedExerciseId, setCopiedExerciseId] = useState<string | null>(null);
+
+  const handleToggleJointDiscomfort = (exerciseId: string) => {
+    const updatedExercises = day.exercises.map(ex => {
+      if (ex.id === exerciseId) {
+        return {
+          ...ex,
+          hasJointDiscomfort: !ex.hasJointDiscomfort,
+        };
+      }
+      return ex;
+    });
+    onUpdateDay({ ...day, exercises: updatedExercises });
+  };
 
   if (day.dayType === 'rest') {
     return (
@@ -144,11 +160,12 @@ export const WorkoutLogger: React.FC<WorkoutLoggerProps> = ({
     onUpdateDay({ ...day, exercises: updatedExercises });
   };
 
-  const handleCopyPrevData = (exercise: Exercise) => {
-    if (!exercise.previousLogs) return;
+  const handleCopyPrevData = (exercise: Exercise, effectivePrevLog?: ExerciseLogRef) => {
+    const logToUse = effectivePrevLog || exercise.previousLogs;
+    if (!logToUse) return;
 
-    const prevWeight = exercise.previousLogs.weight;
-    const prevReps = exercise.previousLogs.reps;
+    const prevWeight = logToUse.weight;
+    const prevReps = logToUse.reps;
 
     const updatedExercises = day.exercises.map(ex => {
       if (ex.id !== exercise.id) return ex;
@@ -244,6 +261,7 @@ export const WorkoutLogger: React.FC<WorkoutLoggerProps> = ({
       {/* Exercises Cards List */}
       <div className="space-y-5">
         {day.exercises.map((exercise, index) => {
+          const effectivePrevLog = getMostRecentLogForExercise(exercise, program, day.id);
           const isFullyCompleted = exercise.currentSets.length > 0 && exercise.currentSets.every(s => s.completed);
 
           return (
@@ -264,11 +282,24 @@ export const WorkoutLogger: React.FC<WorkoutLoggerProps> = ({
                     #{index + 1}
                   </div>
                   <div>
-                    <div className="flex items-center space-x-2">
+                    <div className="flex flex-wrap items-center gap-2">
                       <h3 className="text-base font-semibold text-white">{exercise.name}</h3>
                       <span className="text-[11px] px-2 py-0.5 rounded bg-white/5 text-white/60 border border-white/10 font-medium">
                         {exercise.muscleGroup}
                       </span>
+                      <button
+                        type="button"
+                        onClick={() => handleToggleJointDiscomfort(exercise.id)}
+                        className={`inline-flex items-center px-2 py-0.5 rounded text-[11px] font-medium transition-colors border ${
+                          exercise.hasJointDiscomfort
+                            ? 'bg-rose-500/20 text-rose-300 border-rose-500/40 font-bold'
+                            : 'bg-white/5 text-white/40 hover:text-white/70 border-white/10'
+                        }`}
+                        title={exercise.hasJointDiscomfort ? 'Molestia articular activa (bloquea aumentos de peso)' : 'Marcar si sientes molestia articular en este ejercicio'}
+                      >
+                        <ShieldAlert className="w-3 h-3 mr-1" />
+                        {exercise.hasJointDiscomfort ? 'Molestia Articular' : '¿Molestia?'}
+                      </button>
                     </div>
 
                     <p className="text-xs text-white/50 mt-0.5">
@@ -278,20 +309,22 @@ export const WorkoutLogger: React.FC<WorkoutLoggerProps> = ({
                 </div>
 
                 {/* Last Week comparison badge & Copy button */}
-                {exercise.previousLogs && (
+                {effectivePrevLog && (
                   <div className="flex items-center space-x-2 bg-[#0a0a0a] p-2 rounded-xl border border-white/10 shrink-0">
                     <History className="w-4 h-4 text-blue-400" />
                     <div className="text-xs">
-                      <span className="text-white/40 block text-[10px]">Semana pasada:</span>
+                      <span className="text-white/40 block text-[10px]">
+                        {effectivePrevLog.isFromCurrentWeek ? 'Sesión previa (esta semana):' : 'Semana pasada:'}
+                      </span>
                       <span className="font-medium text-white font-mono">
-                        {exercise.previousLogs.weight} kg × {exercise.previousLogs.reps} reps
+                        {effectivePrevLog.weight === 0 ? 'BW' : `${effectivePrevLog.weight} kg`} × {effectivePrevLog.reps} reps
                       </span>
                     </div>
 
                     <button
-                      onClick={() => handleCopyPrevData(exercise)}
+                      onClick={() => handleCopyPrevData(exercise, effectivePrevLog)}
                       className="ml-2 p-1.5 bg-white/5 hover:bg-white/10 text-white/80 rounded-lg transition-colors flex items-center text-[11px] border border-white/10"
-                      title="Copiar datos de semana pasada a hoy"
+                      title="Copiar datos de última sesión a hoy"
                     >
                       {copiedExerciseId === exercise.id ? (
                         <>
@@ -311,7 +344,11 @@ export const WorkoutLogger: React.FC<WorkoutLoggerProps> = ({
 
               {/* Overload Advisor AI Card */}
               <OverloadAdvisorCard
+                key={`${exercise.id}_${effectivePrevLog?.weight ?? 0}_${effectivePrevLog?.reps ?? 0}_${effectivePrevLog?.isFromCurrentWeek ? 'curr' : 'prev'}_${exercise.hasJointDiscomfort ? 'dis' : 'normal'}`}
                 exercise={exercise}
+                effectivePrevLog={effectivePrevLog}
+                program={program}
+                exerciseIndexInDay={index}
                 onApplyWeight={handleApplySuggestedWeight}
               />
 

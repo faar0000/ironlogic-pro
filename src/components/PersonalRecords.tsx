@@ -73,7 +73,16 @@ export const PersonalRecords: React.FC<PersonalRecordsProps> = ({ program }) => 
               <div className="bg-[#0a0a0a] p-3 rounded-xl border border-white/10 flex items-center justify-between mb-3">
                 <div>
                   <span className="text-[10px] text-white/40 uppercase tracking-wider block">Peso Máximo</span>
-                  <span className="text-2xl font-bold text-blue-400 font-mono">{pr.maxWeight} kg</span>
+                  <span className="text-2xl font-bold text-blue-400 font-mono flex items-baseline space-x-1">
+                    {pr.maxWeight === 0 ? (
+                      <>
+                        <span>BW</span>
+                        <span className="text-xs text-white/50 font-sans font-normal ml-1">(Peso Corp.)</span>
+                      </>
+                    ) : (
+                      `${pr.maxWeight} kg`
+                    )}
+                  </span>
                 </div>
                 <div className="text-right">
                   <span className="text-[10px] text-white/40 uppercase tracking-wider block">Repeticiones</span>
@@ -82,7 +91,12 @@ export const PersonalRecords: React.FC<PersonalRecordsProps> = ({ program }) => 
               </div>
 
               <div className="flex items-center justify-between text-xs text-white/50 pt-2 border-t border-white/10">
-                <span>1RM Estimado: <strong className="text-blue-400 font-mono">{pr.estimated1RM} kg</strong></span>
+                <span>
+                  1RM Estimado:{' '}
+                  <strong className="text-blue-400 font-mono">
+                    {pr.estimated1RM === 0 ? 'BW (Peso Corp.)' : `${pr.estimated1RM} kg`}
+                  </strong>
+                </span>
                 <span className="text-[11px] text-white/30 font-mono">{pr.date}</span>
               </div>
             </div>

@@ -203,6 +203,7 @@ export default function App() {
             {activeDay && (
               <WorkoutLogger
                 day={activeDay}
+                program={program}
                 onUpdateDay={handleUpdateDay}
                 onOpenRestTimer={() => setIsRestTimerOpen(true)}
                 onAddExerciseClick={() => setIsAddExerciseOpen(true)}
