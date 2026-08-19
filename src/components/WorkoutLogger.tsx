@@ -5,7 +5,7 @@ import {
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { WorkoutDay, Exercise, SetLog, GymProgram } from '../types';
-import { OverloadAdvisorCard } from './OverloadAdvisorCard';
+import { OverloadAdvisorBadge, OverloadAdvisorDrawer } from './OverloadAdvisorCard';
 import { getMostRecentLogForExercise, ExerciseLogRef } from '../utils/progressiveOverload';
 
 interface WorkoutLoggerProps {
@@ -24,6 +24,14 @@ export const WorkoutLogger: React.FC<WorkoutLoggerProps> = ({
   onAddExerciseClick,
 }) => {
   const [copiedExerciseId, setCopiedExerciseId] = useState<string | null>(null);
+  const [expandedAdvisorIds, setExpandedAdvisorIds] = useState<Record<string, boolean>>({});
+
+  const toggleAdvisorExpand = (exerciseId: string) => {
+    setExpandedAdvisorIds(prev => ({
+      ...prev,
+      [exerciseId]: !prev[exerciseId],
+    }));
+  };
 
   const handleToggleJointDiscomfort = (exerciseId: string) => {
     const updatedExercises = day.exercises.map(ex => {
@@ -308,49 +316,64 @@ export const WorkoutLogger: React.FC<WorkoutLoggerProps> = ({
                   </div>
                 </div>
 
-                {/* Last Week comparison badge & Copy button */}
-                {effectivePrevLog && (
-                  <div className="flex items-center space-x-2 bg-[#0a0a0a] p-2 rounded-xl border border-white/10 shrink-0">
-                    <History className="w-4 h-4 text-blue-400" />
-                    <div className="text-xs">
-                      <span className="text-white/40 block text-[10px]">
-                        {effectivePrevLog.isFromCurrentWeek ? 'Sesión previa (esta semana):' : 'Semana pasada:'}
-                      </span>
-                      <span className="font-medium text-white font-mono">
-                        {effectivePrevLog.weight === 0 ? 'BW' : `${effectivePrevLog.weight} kg`} × {effectivePrevLog.reps} reps
-                      </span>
-                    </div>
+                {/* Right: Last Week Comparison Badge + Compact Overload Advisor Pill */}
+                <div className="flex flex-wrap items-center gap-2 shrink-0">
+                  {effectivePrevLog && (
+                    <div className="flex items-center space-x-2 bg-[#0a0a0a] p-2 rounded-xl border border-white/10 shrink-0">
+                      <History className="w-4 h-4 text-blue-400" />
+                      <div className="text-xs">
+                        <span className="text-white/40 block text-[10px]">
+                          {effectivePrevLog.isFromCurrentWeek ? 'Sesión previa:' : 'Semana pasada:'}
+                        </span>
+                        <span className="font-medium text-white font-mono">
+                          {effectivePrevLog.weight === 0 ? 'BW' : `${effectivePrevLog.weight} kg`} × {effectivePrevLog.reps} reps
+                        </span>
+                      </div>
 
-                    <button
-                      onClick={() => handleCopyPrevData(exercise, effectivePrevLog)}
-                      className="ml-2 p-1.5 bg-white/5 hover:bg-white/10 text-white/80 rounded-lg transition-colors flex items-center text-[11px] border border-white/10"
-                      title="Copiar datos de última sesión a hoy"
-                    >
-                      {copiedExerciseId === exercise.id ? (
-                        <>
-                          <Check className="w-3.5 h-3.5 text-blue-400 mr-1" />
-                          <span className="text-blue-400">Copiado</span>
-                        </>
-                      ) : (
-                        <>
-                          <Copy className="w-3.5 h-3.5 mr-1" />
-                          <span>Usar peso</span>
-                        </>
-                      )}
-                    </button>
-                  </div>
-                )}
+                      <button
+                        onClick={() => handleCopyPrevData(exercise, effectivePrevLog)}
+                        className="ml-1.5 p-1.5 bg-white/5 hover:bg-white/10 text-white/80 rounded-lg transition-colors flex items-center text-[11px] border border-white/10"
+                        title="Copiar datos de última sesión a hoy"
+                      >
+                        {copiedExerciseId === exercise.id ? (
+                          <>
+                            <Check className="w-3.5 h-3.5 text-blue-400 mr-1" />
+                            <span className="text-blue-400">Copiado</span>
+                          </>
+                        ) : (
+                          <>
+                            <Copy className="w-3.5 h-3.5 mr-1" />
+                            <span>Usar peso</span>
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  )}
+
+                  {/* Compact AI Advisor Tag / Pill */}
+                  <OverloadAdvisorBadge
+                    exercise={exercise}
+                    effectivePrevLog={effectivePrevLog}
+                    program={program}
+                    exerciseIndexInDay={index}
+                    isExpanded={!!expandedAdvisorIds[exercise.id]}
+                    onToggleExpand={() => toggleAdvisorExpand(exercise.id)}
+                  />
+                </div>
               </div>
 
-              {/* Overload Advisor AI Card */}
-              <OverloadAdvisorCard
-                key={`${exercise.id}_${effectivePrevLog?.weight ?? 0}_${effectivePrevLog?.reps ?? 0}_${effectivePrevLog?.isFromCurrentWeek ? 'curr' : 'prev'}_${exercise.hasJointDiscomfort ? 'dis' : 'normal'}`}
-                exercise={exercise}
-                effectivePrevLog={effectivePrevLog}
-                program={program}
-                exerciseIndexInDay={index}
-                onApplyWeight={handleApplySuggestedWeight}
-              />
+              {/* Collapsible Overload Advisor AI Drawer */}
+              {expandedAdvisorIds[exercise.id] && (
+                <OverloadAdvisorDrawer
+                  key={`${exercise.id}_${effectivePrevLog?.weight ?? 0}_${effectivePrevLog?.reps ?? 0}_${effectivePrevLog?.isFromCurrentWeek ? 'curr' : 'prev'}_${exercise.hasJointDiscomfort ? 'dis' : 'normal'}`}
+                  exercise={exercise}
+                  effectivePrevLog={effectivePrevLog}
+                  program={program}
+                  exerciseIndexInDay={index}
+                  onApplyWeight={handleApplySuggestedWeight}
+                  onClose={() => toggleAdvisorExpand(exercise.id)}
+                />
+              )}
 
               {/* Sets Table */}
               <div className="overflow-x-auto">

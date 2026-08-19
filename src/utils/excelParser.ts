@@ -48,21 +48,83 @@ const MONTH_MAP: Record<string, number> = {
 };
 
 /**
- * Parse any date string / Date object / Excel serial into a JS Date
+ * Format a Date object to YYYY-MM-DD using local year, month, and day (avoiding UTC timezone drift)
  */
-export function parseToDate(val: any, fallbackYear = new Date().getFullYear()): Date | null {
+export function formatLocalDate(d: Date): string {
+  const year = d.getFullYear() === 2025 ? 2026 : d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+/**
+ * Deduplicate history records by Date + Normalized Exercise Name + Set Number.
+ * Preserves the best/most complete record and prevents runaway duplicate generation.
+ */
+export function deduplicateHistoryRecords(history: HistoryRecord[]): HistoryRecord[] {
+  if (!history || !Array.isArray(history)) return [];
+  const map = new Map<string, HistoryRecord>();
+
+  history.forEach(h => {
+    if (!h || !h.exerciseName) return;
+    const dateStr = h.date || '';
+    const normName = h.exerciseName.trim().toLowerCase();
+    const setNum = h.setNumber || 1;
+    const key = `${dateStr}__${normName}__${setNum}`;
+
+    const existing = map.get(key);
+    if (!existing) {
+      map.set(key, h);
+    } else {
+      // Keep the one with higher weight/reps/estimated1RM or more recent
+      const existingScore = (existing.weight || 0) * 1000 + (existing.reps || 0);
+      const currentScore = (h.weight || 0) * 1000 + (h.reps || 0);
+      if (currentScore >= existingScore) {
+        map.set(key, h);
+      }
+    }
+  });
+
+  return Array.from(map.values()).sort((a, b) => {
+    const da = a.date || '';
+    const db = b.date || '';
+    if (da !== db) return da.localeCompare(db);
+    return (a.setNumber || 0) - (b.setNumber || 0);
+  });
+}
+
+/**
+ * Parse any date string / Date object / Excel serial into a JS Date safely at local noon (12:00:00)
+ */
+export function parseToDate(val: any, fallbackYear = 2026): Date | null {
   if (!val) return null;
   if (val instanceof Date) {
-    return isNaN(val.getTime()) ? null : val;
+    if (isNaN(val.getTime())) return null;
+    let year = val.getFullYear();
+    if (year === 2025) year = 2026;
+    return new Date(year, val.getMonth(), val.getDate(), 12, 0, 0);
   }
   if (typeof val === 'number') {
     const dateObj = XLSX.SSF.parse_date_code(val);
     if (dateObj) {
-      return new Date(dateObj.y, dateObj.m - 1, dateObj.d);
+      let year = dateObj.y;
+      if (year === 2025) year = 2026;
+      return new Date(year, dateObj.m - 1, dateObj.d, 12, 0, 0);
     }
   }
   const str = String(val).trim();
   if (!str) return null;
+
+  // YYYY-MM-DD or YYYY/MM/DD
+  const ymdMatch = str.match(/^(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})/);
+  if (ymdMatch) {
+    let year = parseInt(ymdMatch[1], 10);
+    if (year === 2025) year = 2026;
+    const month = parseInt(ymdMatch[2], 10) - 1;
+    const day = parseInt(ymdMatch[3], 10);
+    const d = new Date(year, month, day, 12, 0, 0);
+    if (!isNaN(d.getTime())) return d;
+  }
 
   // DD/MM or DD/MM/YYYY or DD-MM or DD-MM-YYYY
   const slashDashMatch = str.match(/^(\d{1,2})[\/\-](\d{1,2})(?:[\/\-](\d{2,4}))?$/);
@@ -71,7 +133,8 @@ export function parseToDate(val: any, fallbackYear = new Date().getFullYear()): 
     const month = parseInt(slashDashMatch[2], 10) - 1;
     let year = slashDashMatch[3] ? parseInt(slashDashMatch[3], 10) : fallbackYear;
     if (year < 100) year += 2000;
-    const d = new Date(year, month, day);
+    if (year === 2025) year = 2026;
+    const d = new Date(year, month, day, 12, 0, 0);
     if (!isNaN(d.getTime())) return d;
   }
 
@@ -82,21 +145,73 @@ export function parseToDate(val: any, fallbackYear = new Date().getFullYear()): 
     const monthStr = textMonthMatch[2].toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").substring(0, 3);
     let year = textMonthMatch[3] ? parseInt(textMonthMatch[3], 10) : fallbackYear;
     if (year < 100) year += 2000;
+    if (year === 2025) year = 2026;
     if (MONTH_MAP[monthStr] !== undefined) {
-      const d = new Date(year, MONTH_MAP[monthStr], day);
+      const d = new Date(year, MONTH_MAP[monthStr], day, 12, 0, 0);
       if (!isNaN(d.getTime())) return d;
     }
   }
 
   const standardMs = Date.parse(str);
   if (!isNaN(standardMs)) {
-    const d = new Date(standardMs);
-    if (d.getFullYear() > 2000 && d.getFullYear() < 2100) {
-      return d;
+    const raw = new Date(standardMs);
+    let year = raw.getFullYear();
+    if (year === 2025) year = 2026;
+    if (year > 2000 && year < 2100) {
+      return new Date(year, raw.getMonth(), raw.getDate(), 12, 0, 0);
     }
   }
 
   return null;
+}
+
+/**
+ * Sanitizes all dates in a GymProgram, guaranteeing year 2026 across history and logs,
+ * and deduplicating corrupted history records.
+ */
+export function sanitizeProgramDatesTo2026(program: GymProgram): GymProgram {
+  if (!program) return program;
+
+  const fixDateStr = (dateStr?: string): string => {
+    if (!dateStr) return '';
+    let fixed = dateStr.replace(/2025/g, '2026');
+    fixed = fixed.replace(/([\/\-])25$/g, '$12026');
+    return fixed;
+  };
+
+  const rawCleanHistory = (program.history || []).map(h => ({
+    ...h,
+    date: fixDateStr(h.date),
+  }));
+
+  // Automatically deduplicate history records
+  const cleanHistory = deduplicateHistoryRecords(rawCleanHistory);
+
+  const cleanWorkoutDays = (program.workoutDays || []).map(day => ({
+    ...day,
+    exercises: (day.exercises || []).map(ex => ({
+      ...ex,
+      previousLogs: ex.previousLogs
+        ? {
+            ...ex.previousLogs,
+            date: fixDateStr(ex.previousLogs.date),
+          }
+        : undefined,
+    })),
+  }));
+
+  const cleanLastUpdated = fixDateStr(program.lastUpdated) || formatLocalDate(new Date());
+  const cleanActiveWeekMonday = program.activeWeekMonday ? fixDateStr(program.activeWeekMonday) : undefined;
+  const cleanFileName = (program.fileName || 'Rutina_Hipertrofia_2026.xlsx').replace(/2025/g, '2026');
+
+  return {
+    ...program,
+    fileName: cleanFileName,
+    activeWeekMonday: cleanActiveWeekMonday,
+    lastUpdated: cleanLastUpdated,
+    workoutDays: cleanWorkoutDays,
+    history: cleanHistory,
+  };
 }
 
 function formatDateDisplay(d: Date | null, rawStr?: string): string {
@@ -140,6 +255,9 @@ function normalizeDayName(raw: string): string | null {
 interface SetRowData {
   exerciseName: string;
   muscleGroup: string;
+  routineTitle?: string;
+  setNumber?: number;
+  targetSets?: number;
   targetReps: string;
   weight: number;
   repsRealized: number;
@@ -147,6 +265,99 @@ interface SetRowData {
   rawDateStr: string;
   dateObj: Date | null;
   rowIndex: number;
+}
+
+/**
+ * Clean target reps value, handling Excel formatting issues like:
+ * - 810 -> "8-10", default 10
+ * - 1012 -> "10-12", default 12
+ * - 1215 -> "12-15", default 15
+ * - 68 -> "6-8", default 8
+ * - 812 -> "8-12", default 12
+ * - 1015 -> "10-15", default 15
+ * - 1220 -> "12-20", default 15
+ * - 1520 -> "15-20", default 20
+ * - 155 -> "12-15", default 15
+ * - "8-10", "10-12", "12-15", etc.
+ * - Excel Date coercion (e.g. Oct 8 parsed as date -> "8-10")
+ * - Single numbers: 10, 12, 15, 8, etc.
+ */
+export function cleanTargetReps(val: any): { display: string; defaultReps: number } {
+  if (val === undefined || val === null || val === '') {
+    return { display: '10', defaultReps: 10 };
+  }
+
+  // Handle JS Date object (e.g., when Excel converted 8-10 or 10-12 to a Date)
+  if (val instanceof Date && !isNaN(val.getTime())) {
+    const day = val.getDate();
+    const month = val.getMonth() + 1; // 1-12
+    if (day >= 4 && day <= 25 && month >= 4 && month <= 25) {
+      const minR = Math.min(day, month);
+      const maxR = Math.max(day, month);
+      return { display: `${minR}-${maxR}`, defaultReps: maxR };
+    }
+  }
+
+  const str = String(val).trim();
+  if (!str) return { display: '10', defaultReps: 10 };
+
+  // Explicit range like "8-10", "8 - 10", "8/10", "8 a 10", "8 to 10"
+  const rangeMatch = str.match(/^(\d{1,2})\s*[\-\/\saAtoTO]+\s*(\d{1,2})$/i);
+  if (rangeMatch) {
+    const minR = parseInt(rangeMatch[1], 10);
+    const maxR = parseInt(rangeMatch[2], 10);
+    if (!isNaN(minR) && !isNaN(maxR)) {
+      return { display: `${minR}-${maxR}`, defaultReps: maxR };
+    }
+  }
+
+  // Handle concatenated numbers created by Excel number formatting without dash:
+  const numOnly = str.replace(/[^0-9]/g, '');
+
+  if (numOnly === '810') return { display: '8-10', defaultReps: 10 };
+  if (numOnly === '1012') return { display: '10-12', defaultReps: 12 };
+  if (numOnly === '1215') return { display: '12-15', defaultReps: 15 };
+  if (numOnly === '1520') return { display: '15-20', defaultReps: 20 };
+  if (numOnly === '68') return { display: '6-8', defaultReps: 8 };
+  if (numOnly === '812') return { display: '8-12', defaultReps: 12 };
+  if (numOnly === '1015') return { display: '10-15', defaultReps: 15 };
+  if (numOnly === '1220') return { display: '12-20', defaultReps: 15 };
+  if (numOnly === '46') return { display: '4-6', defaultReps: 6 };
+  if (numOnly === '155' || numOnly === '1515') return { display: '12-15', defaultReps: 15 };
+
+  // Single standard number like "12", "15", "10", "8"
+  const singleNum = parseInt(numOnly, 10);
+  if (!isNaN(singleNum)) {
+    if (singleNum >= 1 && singleNum <= 50) {
+      return { display: String(singleNum), defaultReps: singleNum };
+    }
+    // 3-digit range e.g. 610 -> 6-10, 810 -> 8-10
+    if (numOnly.length === 3) {
+      const p1 = parseInt(numOnly.substring(0, 1), 10);
+      const p2 = parseInt(numOnly.substring(1), 10);
+      if (p1 < p2 && p2 <= 30) {
+        return { display: `${p1}-${p2}`, defaultReps: p2 };
+      }
+    } else if (numOnly.length === 4) {
+      const p1 = parseInt(numOnly.substring(0, 2), 10);
+      const p2 = parseInt(numOnly.substring(2), 10);
+      if (p1 < p2 && p2 <= 35) {
+        return { display: `${p1}-${p2}`, defaultReps: p2 };
+      }
+    }
+  }
+
+  return { display: str, defaultReps: 10 };
+}
+
+function cleanHeaderKey(val: any): string {
+  return String(val || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
 /**
@@ -162,6 +373,7 @@ export function parseExcelFile(fileData: ArrayBuffer, fileName: string): GymProg
 
   // Structure to collect data for each canonical day (Lunes -> Domingo)
   const daysData: Record<string, {
+    routineTitle?: string;
     focusMuscles: Set<string>;
     exercisesMap: Map<string, SetRowData[]>;
   }> = {};
@@ -189,49 +401,132 @@ export function parseExcelFile(fileData: ArrayBuffer, fileName: string): GymProg
 
     if (cleanGrid.length === 0) return;
 
-    // Detect header row and column indexes
+    // Detect header row and column indexes across the top rows
     let headerRowIdx = -1;
     let colDate = -1;
     let colDay = -1;
+    let colType = -1;
+    let colRoutine = -1;
     let colGroup = -1;
     let colEx = -1;
+    let colSetNumber = -1;
+    let colTargetSets = -1;
     let colTargetReps = -1;
+    let colReps = -1;
     let colWeight = -1;
-    let colRepsReal = -1;
     let colRIR = -1;
 
-    for (let r = 0; r < Math.min(cleanGrid.length, 15); r++) {
+    for (let r = 0; r < Math.min(cleanGrid.length, 10); r++) {
       const row = cleanGrid[r];
       row.forEach((cell, c) => {
-        const lower = cell.toLowerCase().trim();
-        if (colDate === -1 && (lower.includes('fecha') || lower.includes('date'))) {
+        const h = cleanHeaderKey(cell);
+        if (!h) return;
+
+        if (colDate === -1 && (h.includes('fecha') || h.includes('date'))) {
           colDate = c;
+          if (headerRowIdx === -1) headerRowIdx = r;
         }
-        if (colDay === -1 && (lower.includes('día') || lower.includes('dia') || lower === 'day')) {
+        if (colDay === -1 && (h.includes('dia') || h === 'day' || h === 'dias' || h.includes('jornada'))) {
           colDay = c;
-          headerRowIdx = r;
+          if (headerRowIdx === -1) headerRowIdx = r;
         }
-        if (colGroup === -1 && (lower.includes('grupo') || lower.includes('músculo') || lower.includes('musculo') || lower.includes('muscle'))) {
+        if (colType === -1 && (h.includes('tipo') || h.includes('type'))) {
+          colType = c;
+        }
+        if (colRoutine === -1 && (h.includes('rutina') || h.includes('routine') || h.includes('sesion') || h.includes('nombre rutina'))) {
+          colRoutine = c;
+        }
+        if (colGroup === -1 && (h.includes('grupo') || h.includes('musculo') || h.includes('muscle') || h.includes('zona') || h.includes('categoria'))) {
           colGroup = c;
         }
-        if (colEx === -1 && (lower.includes('ejercicio') || lower.includes('exercise') || lower.includes('nombre') || lower.includes('actividad'))) {
+        if (colEx === -1 && (h.includes('ejercicio') || h.includes('exercise') || h.includes('actividad') || h.includes('movimiento') || h === 'nombre')) {
           colEx = c;
           headerRowIdx = r;
         }
-        if (colTargetReps === -1 && (lower.includes('meta repeti') || lower.includes('target reps') || lower.includes('repeticiones') || lower === 'reps' || lower.includes('meta reps'))) {
+        
+        // 1. Target Reps (e.g. Reps Objetivo, Meta Repeticiones)
+        if (colTargetReps === -1 && (
+          h.includes('reps objetivo') ||
+          h.includes('repeticiones objetivo') ||
+          h.includes('repeticion objetivo') ||
+          h.includes('rep objetivo') ||
+          h.includes('meta repeti') ||
+          h.includes('target rep') ||
+          h.includes('meta reps') ||
+          h.includes('reps programada') ||
+          h.includes('repeticiones programada') ||
+          h.includes('reps meta')
+        )) {
           colTargetReps = c;
         }
-        if (colWeight === -1 && (lower.includes('peso (kg)') || lower.includes('peso actual') || lower.includes('peso hoy') || lower === 'peso' || lower.includes('weight') || lower.includes('kg'))) {
+
+        // 2. Target sets planned (e.g. Series Objetivo)
+        if (colTargetSets === -1 && (
+          h.includes('series objetivo') ||
+          h.includes('serie objetivo') ||
+          h.includes('objetivo serie') ||
+          h.includes('series meta') ||
+          h.includes('meta serie') ||
+          h.includes('series planeada') ||
+          h.includes('series programada') ||
+          h.includes('target set') ||
+          h.includes('sets objetivo') ||
+          h.includes('total serie') ||
+          h.includes('cant serie') ||
+          h.includes('cantidad serie')
+        )) {
+          colTargetSets = c;
+        }
+
+        // 3. Set number for individual row (e.g. Serie #, Serie 1, Set #)
+        if (colSetNumber === -1 && (
+          h.includes('serie #') ||
+          h.includes('set #') ||
+          h.includes('n serie') ||
+          h.includes('nro serie') ||
+          h.includes('num serie') ||
+          h.includes('numero serie') ||
+          (h === 'serie' && colTargetSets !== c) ||
+          (h === 'set' && colTargetSets !== c) ||
+          h === 's'
+        )) {
+          if (colTargetSets !== c) {
+            colSetNumber = c;
+          }
+        }
+
+        // 4. Weight column
+        if (colWeight === -1 && (
+          h.includes('peso') ||
+          h.includes('weight') ||
+          h.includes('kg') ||
+          h.includes('carga') ||
+          h.includes('load')
+        )) {
           colWeight = c;
         }
-        if (colRepsReal === -1 && (lower.includes('reps realizadas') || lower.includes('reps real') || lower.includes('reps hechas') || lower.includes('realizadas'))) {
-          colRepsReal = c;
+
+        // 5. Realized Reps (must NOT be an "objetivo" / "meta" column)
+        if (colReps === -1 && colTargetReps !== c && !h.includes('objetivo') && !h.includes('meta') && !h.includes('target')) {
+          if (
+            h.includes('repeticiones realizadas') ||
+            h.includes('reps realizadas') ||
+            h.includes('repeticiones hechas') ||
+            h.includes('reps hechas') ||
+            h.includes('reps reales') ||
+            h.includes('reps log') ||
+            h === 'reps' ||
+            h === 'repeticiones' ||
+            h === 'rep'
+          ) {
+            colReps = c;
+          }
         }
-        if (colRIR === -1 && (lower.includes('rir'))) {
+
+        if (colRIR === -1 && (h.includes('rir') || h.includes('rpe'))) {
           colRIR = c;
         }
       });
-      if (colEx !== -1 && colDay !== -1) break;
     }
 
     if (colEx === -1) {
@@ -253,9 +548,9 @@ export function parseExcelFile(fileData: ArrayBuffer, fileName: string): GymProg
       const exName = colEx !== -1 ? row[colEx] : '';
       if (!exName || exName.trim() === '') continue;
 
-      const lowerEx = exName.toLowerCase();
-      if (lowerEx === 'ejercicio' || lowerEx === 'exercise' || lowerEx === 'nombre' || lowerEx === 'actividad') continue;
-      if (lowerEx.includes('descanso') || lowerEx.includes('rest day')) continue;
+      const cleanEx = cleanHeaderKey(exName);
+      if (cleanEx === 'ejercicio' || cleanEx === 'exercise' || cleanEx === 'nombre' || cleanEx === 'actividad') continue;
+      if (cleanEx.includes('descanso') || cleanEx.includes('rest day')) continue;
 
       // Determine day name
       let rawDay = colDay !== -1 ? row[colDay] : sheetName;
@@ -273,36 +568,63 @@ export function parseExcelFile(fileData: ArrayBuffer, fileName: string): GymProg
         muscle = inferMuscleGroup(exName);
       }
 
-      // Extract numeric values from row
-      let targetRepsStr = '10';
-      if (colTargetReps !== -1 && row[colTargetReps]) {
-        targetRepsStr = row[colTargetReps];
+      // Routine title
+      let routineTitle = '';
+      if (colRoutine !== -1 && row[colRoutine]) {
+        routineTitle = String(row[colRoutine]).trim();
       }
 
+      // Set Number (e.g. Serie #: 1, 2, 3...)
+      let setNumberVal: number | undefined = undefined;
+      if (colSetNumber !== -1 && row[colSetNumber] !== undefined && row[colSetNumber] !== '') {
+        const num = parseInt(String(row[colSetNumber]).replace(/[^0-9]/g, ''), 10);
+        if (!isNaN(num) && num > 0) setNumberVal = num;
+      }
+
+      // Target Sets (e.g. Series Objetivo: 4)
+      let targetSetsVal = 0;
+      if (colTargetSets !== -1 && row[colTargetSets]) {
+        const num = parseInt(String(row[colTargetSets]).replace(/[^0-9]/g, ''), 10);
+        if (!isNaN(num) && num > 0) targetSetsVal = num;
+      }
+
+      // Extract numeric weight
       let weightVal = 0;
-      if (colWeight !== -1 && row[colWeight]) {
+      if (colWeight !== -1 && row[colWeight] !== undefined && row[colWeight] !== '') {
         const num = parseFloat(String(row[colWeight]).replace(/[^0-9.]/g, ''));
         if (!isNaN(num)) weightVal = num;
       }
 
-      let repsRealizedVal = 0;
-      if (colRepsReal !== -1 && row[colRepsReal]) {
-        const num = parseInt(String(row[colRepsReal]), 10);
-        if (!isNaN(num)) repsRealizedVal = num;
+      // Extract target reps (e.g. "8-10", "10-12", "12-15", "12", etc.)
+      let targetRepsInfo = { display: '10', defaultReps: 10 };
+      if (colTargetReps !== -1 && row[colTargetReps] !== undefined && row[colTargetReps] !== '') {
+        targetRepsInfo = cleanTargetReps(row[colTargetReps]);
       }
+
+      // Extract reps (only from colReps for realized reps)
+      let repsVal = 0;
+      if (colReps !== -1 && row[colReps] !== undefined && row[colReps] !== '') {
+        const num = parseInt(String(row[colReps]).replace(/[^0-9]/g, ''), 10);
+        if (!isNaN(num) && num > 0 && num <= 100) repsVal = num;
+      }
+
+      const targetRepsStr = targetRepsInfo.display;
 
       const rawDateVal = colDate !== -1 ? row[colDate] : '';
       const dateObj = parseToDate(rawDateVal);
 
       // Only collect dates for rows that have logged sets or valid date
       if (dateObj) {
-        if (weightVal > 0 || repsRealizedVal > 0) {
+        if (weightVal > 0 || repsVal > 0) {
           allParsedDates.push(dateObj);
         }
       }
 
       const targetDayObj = daysData[dayName];
       if (targetDayObj) {
+        if (routineTitle && !targetDayObj.routineTitle) {
+          targetDayObj.routineTitle = routineTitle;
+        }
         targetDayObj.focusMuscles.add(muscle);
 
         if (!targetDayObj.exercisesMap.has(exName)) {
@@ -312,9 +634,12 @@ export function parseExcelFile(fileData: ArrayBuffer, fileName: string): GymProg
         targetDayObj.exercisesMap.get(exName)!.push({
           exerciseName: exName,
           muscleGroup: muscle,
+          routineTitle,
+          setNumber: setNumberVal,
+          targetSets: targetSetsVal > 0 ? targetSetsVal : undefined,
           targetReps: targetRepsStr,
           weight: weightVal,
-          repsRealized: repsRealizedVal,
+          repsRealized: repsVal,
           rawDateStr: String(rawDateVal || ''),
           dateObj,
           rowIndex: r,
@@ -323,14 +648,12 @@ export function parseExcelFile(fileData: ArrayBuffer, fileName: string): GymProg
     }
   });
 
-  // Determine the overall maximum logged date in the file
-  let maxLoggedDate: Date = new Date();
-  if (allParsedDates.length > 0) {
-    maxLoggedDate = new Date(Math.max(...allParsedDates.map(d => d.getTime())));
-  }
+  // Determine current active date (today's real calendar date)
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 12, 0, 0);
 
-  // Calculate the Start (Monday 00:00:00) and End (Sunday 23:59:59) of the CURRENT ACTIVE WEEK
-  const activeWeekStart = getMondayOfWeek(maxLoggedDate);
+  // Calculate the Start (Monday 00:00:00) and End (Sunday 23:59:59) of the CURRENT REAL ACTIVE WEEK (HOY)
+  const activeWeekStart = getMondayOfWeek(today);
   const activeWeekEnd = new Date(activeWeekStart);
   activeWeekEnd.setDate(activeWeekEnd.getDate() + 6);
   activeWeekEnd.setHours(23, 59, 59, 999);
@@ -375,65 +698,93 @@ export function parseExcelFile(fileData: ArrayBuffer, fileName: string): GymProg
 
         // Representative baseline row (for target sets / reps)
         const sampleRow = currentWeekSession?.rows[0] || allSessions[allSessions.length - 1]?.rows[0] || allRowsForEx[0];
-        const muscle = sampleRow.muscleGroup || inferMuscleGroup(exName);
-        const targetSetsCount = currentWeekSession?.rows.length || sampleRow ? (allRowsForEx.length > 0 ? (currentWeekSession?.rows.length || allSessions[allSessions.length - 1]?.rows.length || 3) : 3) : 3;
-        const targetRepsStr = sampleRow.targetReps || '10';
+        const muscle = sampleRow?.muscleGroup || inferMuscleGroup(exName);
+        const targetRepsStr = sampleRow?.targetReps || '10';
 
-        // 1. Build currentSets for TODAY'S WORKOUT VIEW
-        const currentSets: SetLog[] = [];
+        // 1. Determine maximum set number or target sets count
+        let maxSetNumberFromRows = 0;
+        allRowsForEx.forEach((r, idx) => {
+          const sNum = r.setNumber || (idx + 1);
+          if (sNum > maxSetNumberFromRows) maxSetNumberFromRows = sNum;
+        });
 
-        if (currentWeekSession) {
-          // This day WAS performed in the active week (e.g., Lunes 03/08 or Martes 04/08)
-          currentWeekSession.rows.forEach((sRow, setIdx) => {
-            const setNumber = setIdx + 1;
-            const defaultWeight = sRow.weight > 0 ? sRow.weight : 0;
-            const defaultReps = sRow.repsRealized > 0 ? sRow.repsRealized : (parseInt(sRow.targetReps, 10) || 10);
-            const isCompleted = sRow.repsRealized > 0 || sRow.weight > 0;
-
-            currentSets.push({
-              id: `c-${dayIdx}-${exIdx}-${setNumber}`,
-              setNumber,
-              weight: defaultWeight,
-              reps: defaultReps,
-              completed: isCompleted,
-            });
-          });
-        } else {
-          // This day HAS NOT been performed in the active week yet (e.g. Miércoles, Jueves, Viernes)
-          // Baseline weights/reps come from the latest previous session, but completed = FALSE
-          const lastPrevRows = previousSessions.length > 0 ? previousSessions[previousSessions.length - 1].rows : allRowsForEx;
-          const numSetsToCreate = lastPrevRows.length || targetSetsCount;
-
-          for (let setIdx = 0; setIdx < numSetsToCreate; setIdx++) {
-            const setNumber = setIdx + 1;
-            const prevRow = lastPrevRows[setIdx] || lastPrevRows[0];
-            const defaultWeight = prevRow?.weight > 0 ? prevRow.weight : 0;
-            const defaultReps = prevRow?.repsRealized > 0 ? prevRow.repsRealized : (parseInt(prevRow?.targetReps || '10', 10) || 10);
-
-            currentSets.push({
-              id: `c-${dayIdx}-${exIdx}-${setNumber}`,
-              setNumber,
-              weight: defaultWeight,
-              reps: defaultReps,
-              completed: false, // Active logging session ready for user!
-            });
+        let explicitTargetSets = 0;
+        for (const r of allRowsForEx) {
+          if (r.targetSets && r.targetSets > 0) {
+            explicitTargetSets = r.targetSets;
+            break;
           }
         }
 
-        // 2. Build previousLogs (Historical reference from prior week session)
+        let targetSetsCount = explicitTargetSets > 0
+          ? explicitTargetSets
+          : Math.max(
+              maxSetNumberFromRows,
+              currentWeekSession?.rows.length || 0,
+              previousSessions.length > 0 ? previousSessions[previousSessions.length - 1].rows.length : 0,
+              1
+            );
+        targetSetsCount = Math.min(Math.max(targetSetsCount, 1), 10);
+
+        // 2. Build currentSets with EXACT matching by setNumber
+        const currentSets: SetLog[] = [];
+
+        for (let setIdx = 0; setIdx < targetSetsCount; setIdx++) {
+          const setNumber = setIdx + 1;
+          
+          // Match row in current week session: first by explicit setNumber, then by array index
+          let matchingRow: SetRowData | undefined = undefined;
+          if (currentWeekSession && currentWeekSession.rows.length > 0) {
+            matchingRow = currentWeekSession.rows.find(r => r.setNumber === setNumber);
+            if (!matchingRow && currentWeekSession.rows[setIdx]) {
+              matchingRow = currentWeekSession.rows[setIdx];
+            }
+          }
+
+          // Previous session fallback
+          const prevSession = previousSessions.length > 0 ? previousSessions[previousSessions.length - 1] : null;
+          let prevMatchingRow: SetRowData | undefined = undefined;
+          if (prevSession && prevSession.rows.length > 0) {
+            prevMatchingRow = prevSession.rows.find(r => r.setNumber === setNumber) || prevSession.rows[setIdx] || prevSession.rows[0];
+          }
+
+          const baseRow = matchingRow || prevMatchingRow || sampleRow;
+          const baseTargetInfo = cleanTargetReps(baseRow?.targetReps);
+
+          const defaultWeight = matchingRow ? matchingRow.weight : (prevMatchingRow?.weight || 0);
+          const defaultReps = (matchingRow && matchingRow.repsRealized > 0)
+            ? matchingRow.repsRealized
+            : ((prevMatchingRow && prevMatchingRow.repsRealized > 0)
+                ? prevMatchingRow.repsRealized
+                : baseTargetInfo.defaultReps);
+          const isCompleted = matchingRow ? (matchingRow.weight > 0 || matchingRow.repsRealized > 0) : false;
+
+          currentSets.push({
+            id: `c-${dayIdx}-${exIdx}-${setNumber}`,
+            setNumber,
+            weight: defaultWeight,
+            reps: defaultReps,
+            completed: isCompleted,
+          });
+        }
+
+        // 3. Build previousLogs (Historical reference from prior week session)
         let previousLogsData: Exercise['previousLogs'] = undefined;
         const refSession = previousSessions.length > 0
           ? previousSessions[previousSessions.length - 1]
           : (currentWeekSession ? null : allSessions[allSessions.length - 1]);
 
         if (refSession && refSession.rows.length > 0) {
-          const prevSets: SetLog[] = refSession.rows.map((pRow, pIdx) => ({
-            id: `p-${dayIdx}-${exIdx}-${pIdx + 1}`,
-            setNumber: pIdx + 1,
-            weight: pRow.weight || 0,
-            reps: pRow.repsRealized || parseInt(pRow.targetReps, 10) || 10,
-            completed: true,
-          }));
+          const prevSets: SetLog[] = refSession.rows.map((pRow, pIdx) => {
+            const pTargetInfo = cleanTargetReps(pRow.targetReps);
+            return {
+              id: `p-${dayIdx}-${exIdx}-${pRow.setNumber || pIdx + 1}`,
+              setNumber: pRow.setNumber || pIdx + 1,
+              weight: pRow.weight || 0,
+              reps: pRow.repsRealized || pTargetInfo.defaultReps || 10,
+              completed: true,
+            };
+          });
 
           const maxWeightRow = refSession.rows.reduce((prev, curr) => (curr.weight > prev.weight ? curr : prev), refSession.rows[0]);
           const dateLabel = formatDateDisplay(refSession.dateObj, refSession.rawStr) || 'Semana anterior';
@@ -446,10 +797,10 @@ export function parseExcelFile(fileData: ArrayBuffer, fileName: string): GymProg
           };
         }
 
-        // 3. Global history records
+        // 4. Global history records
         allRowsForEx.forEach((rowItem, rIdx) => {
           if (rowItem.weight > 0 || rowItem.repsRealized > 0) {
-            const setNumber = (rIdx % (targetSetsCount || 1)) + 1;
+            const setNumber = rowItem.setNumber || ((rIdx % (targetSetsCount || 1)) + 1);
             const w = rowItem.weight || 0;
             const r = rowItem.repsRealized || parseInt(rowItem.targetReps, 10) || 10;
             const dStr = rowItem.dateObj
@@ -459,7 +810,7 @@ export function parseExcelFile(fileData: ArrayBuffer, fileName: string): GymProg
               id: `hist-${dayIdx}-${exIdx}-${rIdx}`,
               date: dStr,
               dayName,
-              routineTitle: `${dayName} - Rutina`,
+              routineTitle: dayObj.routineTitle || `${dayName} - Rutina`,
               exerciseName: exName,
               muscleGroup: muscle,
               setNumber,
@@ -475,7 +826,7 @@ export function parseExcelFile(fileData: ArrayBuffer, fileName: string): GymProg
           id: `ex-${dayIdx}-${exIdx}`,
           name: exName,
           muscleGroup: muscle,
-          targetSets: currentSets.length,
+          targetSets: targetSetsCount,
           targetReps: targetRepsStr,
           previousLogs: previousLogsData,
           currentSets,
@@ -483,7 +834,7 @@ export function parseExcelFile(fileData: ArrayBuffer, fileName: string): GymProg
       });
 
       const focusArray = Array.from(dayObj.focusMuscles);
-      const titleStr = focusArray.length > 0 ? `Rutina de ${focusArray.join(' / ')}` : `${dayName} - Entrenamiento`;
+      const titleStr = dayObj.routineTitle || (focusArray.length > 0 ? `Rutina de ${focusArray.join(' / ')}` : `${dayName} - Entrenamiento`);
 
       return {
         id: `day-${dayIdx + 1}`,
@@ -506,12 +857,15 @@ export function parseExcelFile(fileData: ArrayBuffer, fileName: string): GymProg
     }
   });
 
-  const latestDateDisplay = formatDateDisplay(maxLoggedDate);
+  const latestDateDisplay = formatLocalDate(today);
 
-  return {
+  const rawProgram: GymProgram = {
     fileName,
-    lastUpdated: latestDateDisplay || new Date().toISOString().split('T')[0],
+    activeWeekMonday: formatLocalDate(activeWeekStart),
+    lastUpdated: latestDateDisplay,
     workoutDays,
     history,
   };
+
+  return sanitizeProgramDatesTo2026(rawProgram);
 }

@@ -8,9 +8,11 @@ import { PersonalRecords } from './components/PersonalRecords';
 import { ExcelUploaderModal } from './components/ExcelUploaderModal';
 import { RestTimerModal } from './components/RestTimerModal';
 import { AddExerciseModal } from './components/AddExerciseModal';
+import { NewWeekModal } from './components/NewWeekModal';
 
 import { INITIAL_SAMPLE_PROGRAM } from './utils/sampleData';
 import { exportProgramToExcel } from './utils/excelExporter';
+import { sanitizeProgramDatesTo2026 } from './utils/excelParser';
 import { syncProgramHistory, checkAndPerformWeeklyRollover, performRollover } from './utils/historySync';
 import { checkDriveStatus, syncToDrive } from './utils/googleDriveSync';
 import { GymProgram, WorkoutDay, Exercise } from './types';
@@ -31,12 +33,17 @@ export default function App() {
     try {
       const saved = localStorage.getItem(STORAGE_KEY);
       if (saved) {
-        return JSON.parse(saved);
+        const parsed = JSON.parse(saved);
+        const sanitized = sanitizeProgramDatesTo2026(parsed);
+        if (!sanitized.history) {
+          sanitized.history = [];
+        }
+        return sanitized;
       }
     } catch (e) {
       console.error('Failed to load local program:', e);
     }
-    return INITIAL_SAMPLE_PROGRAM;
+    return sanitizeProgramDatesTo2026(INITIAL_SAMPLE_PROGRAM);
   });
 
   const [activeTab, setActiveTab] = useState<'workout' | 'analytics' | 'prs'>('workout');
@@ -48,16 +55,23 @@ export default function App() {
   const [isUploaderOpen, setIsUploaderOpen] = useState(false);
   const [isRestTimerOpen, setIsRestTimerOpen] = useState(false);
   const [isAddExerciseOpen, setIsAddExerciseOpen] = useState(false);
+  const [isNewWeekModalOpen, setIsNewWeekModalOpen] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
-  // Save changes to localStorage
+  // Auto-migrate dates to 2026 and save changes to localStorage
   useEffect(() => {
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(program));
+      const sanitized = sanitizeProgramDatesTo2026(program);
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(sanitized));
     } catch (e) {
       console.error('Failed to save program locally:', e);
     }
   }, [program]);
+
+  // Clean any old 2025 dates on initial mount
+  useEffect(() => {
+    setProgram(prev => sanitizeProgramDatesTo2026(prev));
+  }, []);
 
   const showToast = (msg: string) => {
     setToastMessage(msg);
@@ -74,31 +88,44 @@ export default function App() {
   }, []);
 
   const handleStartNewWeek = () => {
-    if (window.confirm('¿Deseas guardar todo el progreso actual de esta semana en el historial e iniciar un nuevo ciclo semanal?')) {
-      const rolledOverProgram = performRollover(program);
-      setProgram(rolledOverProgram);
-      if (rolledOverProgram.workoutDays.length > 0) {
-        setActiveDayId(rolledOverProgram.workoutDays[0].id);
+    setIsNewWeekModalOpen(true);
+  };
+
+  const handleConfirmNewWeek = async () => {
+    const rolledOverProgram = performRollover(program);
+    setProgram(rolledOverProgram);
+    if (rolledOverProgram.workoutDays.length > 0) {
+      setActiveDayId(rolledOverProgram.workoutDays[0].id);
+    }
+    showToast('🚀 ¡Nuevo ciclo semanal iniciado! Cargas y repeticiones archivadas en el historial.');
+
+    // Auto-sync new week program to Google Drive if connected
+    try {
+      const st = await checkDriveStatus();
+      if (st.authenticated) {
+        await syncToDrive(rolledOverProgram);
       }
-      showToast('🚀 ¡Nuevo ciclo semanal iniciado! Cargas y repeticiones de la semana pasada actualizadas.');
+    } catch (e) {
+      console.error('Error auto-syncing new week to Drive:', e);
     }
   };
 
   const handleProgramLoaded = async (newProgram: GymProgram) => {
-    setProgram(newProgram);
-    if (newProgram.workoutDays.length > 0) {
-      setActiveDayId(getFirstUncompletedDayId(newProgram));
+    const cleanProgram = sanitizeProgramDatesTo2026(newProgram);
+    setProgram(cleanProgram);
+    if (cleanProgram.workoutDays.length > 0) {
+      setActiveDayId(getFirstUncompletedDayId(cleanProgram));
     }
-    showToast(`✅ ¡Archivo "${newProgram.fileName}" cargado correctamente!`);
+    showToast(`✅ ¡Archivo "${cleanProgram.fileName}" cargado correctamente!`);
 
     // Auto-sync newly loaded Excel to Google Drive if connected
     try {
       const st = await checkDriveStatus();
       if (st.authenticated) {
-        showToast(`☁️ Guardando "${newProgram.fileName}" en Google Drive...`);
-        const syncRes = await syncToDrive(newProgram);
+        showToast(`☁️ Guardando "${cleanProgram.fileName}" en Google Drive...`);
+        const syncRes = await syncToDrive(cleanProgram);
         if (syncRes.success) {
-          showToast(`☁️ ¡"${newProgram.fileName}" respaldado exitosamente en Google Drive!`);
+          showToast(`☁️ ¡"${cleanProgram.fileName}" respaldado exitosamente en Google Drive!`);
         }
       } else {
         showToast(`💡 Tip: Puedes conectar Google Drive para respaldar este Excel en la nube.`);
@@ -109,8 +136,9 @@ export default function App() {
   };
 
   const handleLoadSample = () => {
-    setProgram(INITIAL_SAMPLE_PROGRAM);
-    setActiveDayId(INITIAL_SAMPLE_PROGRAM.workoutDays[0].id);
+    const clean = sanitizeProgramDatesTo2026(INITIAL_SAMPLE_PROGRAM);
+    setProgram(clean);
+    setActiveDayId(clean.workoutDays[0].id);
     showToast('✨ Rutina demo de ejemplo cargada.');
   };
 
@@ -195,6 +223,7 @@ export default function App() {
             <WeeklyRoutineOverview
               workoutDays={program.workoutDays}
               activeDayId={activeDayId}
+              activeWeekMonday={program.activeWeekMonday}
               onSelectDay={setActiveDayId}
               onStartNewWeek={handleStartNewWeek}
             />
@@ -248,6 +277,13 @@ export default function App() {
         isOpen={isAddExerciseOpen}
         onClose={() => setIsAddExerciseOpen(false)}
         onAddExercise={handleAddExerciseToActiveDay}
+      />
+
+      <NewWeekModal
+        isOpen={isNewWeekModalOpen}
+        onClose={() => setIsNewWeekModalOpen(false)}
+        onConfirm={handleConfirmNewWeek}
+        program={program}
       />
 
     </div>

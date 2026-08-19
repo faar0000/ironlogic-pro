@@ -1,16 +1,19 @@
 import React, { useState } from 'react';
 import { 
   ResponsiveContainer, LineChart, Line, BarChart, Bar, Cell, XAxis, YAxis, 
-  Tooltip, CartesianGrid, Legend, AreaChart, Area 
+  Tooltip, CartesianGrid, Legend, AreaChart, Area, ReferenceLine 
 } from 'recharts';
 import { 
   TrendingUp, TrendingDown, Dumbbell, Award, Flame, Calendar, Sparkles, 
-  Equal, ShieldAlert, BarChart2, ArrowUpRight, ArrowDownRight, Scale 
+  Equal, ShieldAlert, BarChart2, ArrowUpRight, ArrowDownRight, Scale,
+  Layers, Info, CheckCircle2, AlertTriangle, HelpCircle, Activity,
+  Zap, Edit3, Check, SlidersHorizontal
 } from 'lucide-react';
 import { GymProgram } from '../types';
 import { 
   getExerciseProgressHistory, getVolumeByMuscleGroup, getPersonalRecords, 
-  getWeeklyTonnageSummary 
+  getWeeklyTonnageSummary, getEffectiveSetsByMuscleGroup, MuscleEffectiveSets,
+  ExerciseProgressPoint 
 } from '../utils/analytics';
 import { getOverloadRecommendation, getMostRecentLogForExercise } from '../utils/progressiveOverload';
 
@@ -28,12 +31,40 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({ program }) => {
 
   const exerciseList = Array.from(allExercisesSet);
   const [selectedExercise, setSelectedExercise] = useState<string>(exerciseList[0] || 'Press de Banca Plano con Barra');
+  const [muscleViewMode, setMuscleViewMode] = useState<'completed' | 'planned' | 'tonnage'>('completed');
+
+  // User bodyweight state for relative strength calculation
+  const [bodyweight, setBodyweight] = useState<number>(() => {
+    const saved = localStorage.getItem('gym_user_bodyweight');
+    if (saved) {
+      const parsed = parseFloat(saved);
+      if (!isNaN(parsed) && parsed > 0) return parsed;
+    }
+    return program.userBodyweight || 75;
+  });
+  const [isEditingBw, setIsEditingBw] = useState(false);
+  const [tempBwInput, setTempBwInput] = useState(String(bodyweight));
+  const [smoothCurve, setSmoothCurve] = useState<boolean>(false);
+
+  const handleSaveBodyweight = (newWeight: number) => {
+    if (newWeight > 0 && !isNaN(newWeight)) {
+      setBodyweight(newWeight);
+      localStorage.setItem('gym_user_bodyweight', String(newWeight));
+    }
+    setIsEditingBw(false);
+  };
 
   // Compute analytics
-  const exerciseHistory = getExerciseProgressHistory(program, selectedExercise);
+  const exerciseHistory = getExerciseProgressHistory(program, selectedExercise, bodyweight);
+  const effectiveSetsData = getEffectiveSetsByMuscleGroup(program, muscleViewMode === 'tonnage' ? 'completed' : muscleViewMode);
   const volumeByMuscle = getVolumeByMuscleGroup(program);
   const personalRecords = getPersonalRecords(program);
   const weeklySummary = getWeeklyTonnageSummary(program);
+
+  // Latest progress metrics for selected exercise
+  const latestPoint = exerciseHistory.length > 0 ? exerciseHistory[exerciseHistory.length - 1] : null;
+  const currentMultiplier1RM = latestPoint ? latestPoint.relativeStrength1RM : 0;
+  const currentMultiplierWeight = latestPoint ? latestPoint.relativeStrengthMaxWeight : 0;
 
   // Overall statistics
   const totalVolumeOverall = program.history.reduce((acc, h) => acc + h.volume, 0) +
@@ -248,56 +279,290 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({ program }) => {
       </div>
 
 
-      {/* Chart 1: Evolution of Max Weight & 1RM for Selected Exercise */}
-      <div className="bg-[#0f0f0f] border border-white/10 rounded-2xl p-6 shadow-xl">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-6 gap-3">
+      {/* Chart 1: Evolution of Max Weight, Estimated 1RM & Relative Strength */}
+      <div className="bg-[#0f0f0f] border border-white/10 rounded-2xl p-6 shadow-xl space-y-5">
+        
+        {/* Header: Title, Controls (Exercise Selector + Curve Smoothing Toggle) */}
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 border-b border-white/10 pb-5">
           <div>
             <div className="flex items-center space-x-2">
               <TrendingUp className="w-5 h-5 text-blue-400" />
               <h3 className="text-lg font-semibold text-white">Evolución de Fuerza & 1RM Estimado</h3>
+              {exerciseHistory.length > 0 && (
+                <span className="text-[11px] font-medium bg-blue-500/10 text-blue-300 border border-blue-500/20 px-2 py-0.5 rounded-full">
+                  {exerciseHistory.length} {exerciseHistory.length === 1 ? 'sesión' : 'sesiones en la línea de tiempo'}
+                </span>
+              )}
             </div>
-            <p className="text-xs text-white/40 mt-0.5">Seguimiento de peso máximo y fuerza calculada a través del tiempo.</p>
+            <p className="text-xs text-white/40 mt-1">
+              Monitoreo de fuerza absoluta, 1RM calculado y fuerza relativa (multiplicador de peso corporal) a través del tiempo.
+            </p>
           </div>
 
-          {/* Exercise Selector */}
-          <div className="shrink-0">
-            <select
-              value={selectedExercise}
-              onChange={(e) => setSelectedExercise(e.target.value)}
-              className="bg-[#0a0a0a] border border-white/10 text-white text-xs font-medium rounded-xl px-3 py-2 focus:ring-1 focus:ring-blue-500 focus:outline-none max-w-xs"
+          <div className="flex flex-wrap items-center gap-2.5">
+            {/* Curve Smoothing Toggle */}
+            <button
+              type="button"
+              onClick={() => setSmoothCurve(prev => !prev)}
+              className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-xl text-xs font-medium border transition-all ${
+                smoothCurve
+                  ? 'bg-blue-600/20 border-blue-500/40 text-blue-300 shadow-sm'
+                  : 'bg-white/5 border-white/10 text-white/50 hover:text-white/80'
+              }`}
+              title="Aplica una media móvil para suavizar fluctuaciones diarias y mostrar la tendencia real"
             >
-              {exerciseList.map((name) => (
-                <option key={name} value={name}>
-                  {name}
-                </option>
-              ))}
-            </select>
+              <SlidersHorizontal className="w-3.5 h-3.5" />
+              <span>Suavizar Curva (Media Móvil)</span>
+              {smoothCurve && (
+                <span className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse ml-1" />
+              )}
+            </button>
+
+            {/* Exercise Selector */}
+            <div className="shrink-0">
+              <select
+                value={selectedExercise}
+                onChange={(e) => setSelectedExercise(e.target.value)}
+                className="bg-[#0a0a0a] border border-white/10 text-white text-xs font-medium rounded-xl px-3 py-1.5 focus:ring-1 focus:ring-blue-500 focus:outline-none max-w-xs"
+              >
+                {exerciseList.map((name) => (
+                  <option key={name} value={name}>
+                    {name}
+                  </option>
+                ))}
+              </select>
+            </div>
           </div>
         </div>
 
+        {/* Badges Strip: Relative Strength (BW Multiplier), Max Load, Bodyweight */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          {/* Relative Strength Multiplier Badge */}
+          <div className="bg-[#0a0a0a] border border-white/10 rounded-xl p-3.5 flex items-center justify-between">
+            <div>
+              <span className="text-[10px] uppercase font-semibold text-white/40 block">Fuerza Relativa (1RM)</span>
+              <div className="flex items-baseline space-x-1.5 mt-0.5">
+                <span className="text-xl font-bold font-mono text-emerald-400">
+                  {currentMultiplier1RM > 0 ? `${currentMultiplier1RM}x` : '-'}
+                </span>
+                <span className="text-xs text-emerald-400/70 font-sans">BW</span>
+              </div>
+              <span className="text-[10px] text-white/40 block mt-0.5">
+                {latestPoint ? `1RM (${latestPoint.estimated1RM} kg) / ${bodyweight} kg` : 'Sin registros'}
+              </span>
+            </div>
+            <div className="p-2 bg-emerald-500/10 text-emerald-400 rounded-xl border border-emerald-500/20">
+              <Zap className="w-4 h-4" />
+            </div>
+          </div>
+
+          {/* Max Weight Lifted Badge */}
+          <div className="bg-[#0a0a0a] border border-white/10 rounded-xl p-3.5 flex items-center justify-between">
+            <div>
+              <span className="text-[10px] uppercase font-semibold text-white/40 block">Carga Máxima Actual</span>
+              <div className="flex items-baseline space-x-1.5 mt-0.5">
+                <span className="text-xl font-bold font-mono text-white">
+                  {latestPoint ? (latestPoint.maxWeight === 0 ? 'BW' : `${latestPoint.maxWeight} kg`) : '-'}
+                </span>
+                {currentMultiplierWeight > 0 && (
+                  <span className="text-xs text-white/40 font-mono">({currentMultiplierWeight}x BW)</span>
+                )}
+              </div>
+              <span className="text-[10px] text-white/40 block mt-0.5">
+                {latestPoint ? `Mejor serie: ${latestPoint.bestSetContext}` : 'Sin registros'}
+              </span>
+            </div>
+            <div className="p-2 bg-blue-500/10 text-blue-400 rounded-xl border border-blue-500/20">
+              <Dumbbell className="w-4 h-4" />
+            </div>
+          </div>
+
+          {/* Editable Bodyweight Badge */}
+          <div className="bg-[#0a0a0a] border border-white/10 rounded-xl p-3.5 flex items-center justify-between">
+            <div>
+              <span className="text-[10px] uppercase font-semibold text-white/40 block">Tu Peso Corporal</span>
+              {isEditingBw ? (
+                <div className="flex items-center space-x-1.5 mt-1">
+                  <input
+                    type="number"
+                    step="0.5"
+                    value={tempBwInput}
+                    onChange={(e) => setTempBwInput(e.target.value)}
+                    className="w-16 bg-white/10 border border-blue-500 text-white font-mono text-sm px-2 py-0.5 rounded-lg focus:outline-none"
+                    autoFocus
+                  />
+                  <span className="text-xs text-white/40">kg</span>
+                  <button
+                    type="button"
+                    onClick={() => handleSaveBodyweight(parseFloat(tempBwInput))}
+                    className="p-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded-md transition-colors"
+                    title="Guardar peso"
+                  >
+                    <Check className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              ) : (
+                <div className="flex items-baseline space-x-1.5 mt-0.5">
+                  <span className="text-xl font-bold font-mono text-white">{bodyweight}</span>
+                  <span className="text-xs text-white/40">kg</span>
+                </div>
+              )}
+              <span className="text-[10px] text-white/40 block mt-0.5">
+                Base para cálculo de fuerza relativa
+              </span>
+            </div>
+
+            {!isEditingBw && (
+              <button
+                type="button"
+                onClick={() => {
+                  setTempBwInput(String(bodyweight));
+                  setIsEditingBw(true);
+                }}
+                className="p-2 bg-white/5 hover:bg-white/10 text-white/60 hover:text-white rounded-xl border border-white/10 transition-colors"
+                title="Editar peso corporal"
+              >
+                <Edit3 className="w-4 h-4" />
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Recharts Multi-Axis Visualization */}
         {exerciseHistory.length > 0 ? (
-          <div className="h-72 w-full">
+          <div className="h-80 w-full">
             <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={exerciseHistory} margin={{ top: 10, right: 20, left: 0, bottom: 0 }}>
+              <AreaChart data={exerciseHistory} margin={{ top: 15, right: 25, left: -5, bottom: 0 }}>
                 <defs>
                   <linearGradient id="weightGrad" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#2563eb" stopOpacity={0.5} />
+                    <stop offset="5%" stopColor="#2563eb" stopOpacity={0.4} />
                     <stop offset="95%" stopColor="#2563eb" stopOpacity={0} />
                   </linearGradient>
                   <linearGradient id="rmGrad" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#60a5fa" stopOpacity={0.4} />
+                    <stop offset="5%" stopColor="#60a5fa" stopOpacity={0.3} />
                     <stop offset="95%" stopColor="#60a5fa" stopOpacity={0} />
                   </linearGradient>
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" stroke="#262626" opacity={0.8} />
                 <XAxis dataKey="date" stroke="#737373" fontSize={11} tickLine={false} />
-                <YAxis stroke="#737373" fontSize={11} tickLine={false} unit=" kg" />
-                <Tooltip
-                  contentStyle={{ backgroundColor: '#0a0a0a', borderColor: '#262626', borderRadius: '12px', fontSize: '12px', color: '#ffffff' }}
+                
+                {/* Left Y-Axis: Absolute Weight & 1RM in kg */}
+                <YAxis 
+                  yAxisId="left" 
+                  stroke="#737373" 
+                  fontSize={11} 
+                  tickLine={false} 
+                  unit=" kg" 
+                  domain={[
+                    (dataMin: number) => Math.max(0, Math.floor(dataMin * 0.8)),
+                    (dataMax: number) => Math.ceil(dataMax * 1.15)
+                  ]}
                 />
-                <Legend wrapperStyle={{ fontSize: '12px', paddingTop: '10px' }} />
-                <Area type="monotone" dataKey="maxWeight" name="Peso Máximo (kg)" stroke="#2563eb" fillOpacity={1} fill="url(#weightGrad)" strokeWidth={2.5} />
-                <Area type="monotone" dataKey="estimated1RM" name="1RM Estimado (kg)" stroke="#60a5fa" fillOpacity={1} fill="url(#rmGrad)" strokeWidth={2.5} />
+
+                {/* Right Y-Axis: Relative Strength Multiplier (x BW) */}
+                <YAxis 
+                  yAxisId="right" 
+                  orientation="right" 
+                  stroke="#9ca3af" 
+                  fontSize={11} 
+                  tickLine={false} 
+                  unit="x" 
+                  domain={[
+                    0,
+                    (dataMax: number) => Math.max(2, Math.ceil(dataMax * 1.25))
+                  ]}
+                />
+
+                {/* Enriched Tooltip with Exact Reps Context & Multipliers */}
+                <Tooltip
+                  content={({ active, payload }) => {
+                    if (!active || !payload || !payload.length) return null;
+                    const data = payload[0].payload as ExerciseProgressPoint;
+                    return (
+                      <div className="bg-[#0a0a0a] border border-white/20 rounded-xl p-3.5 shadow-2xl text-xs space-y-2 max-w-xs">
+                        <div className="flex items-center justify-between border-b border-white/10 pb-1.5">
+                          <span className="font-semibold text-white">{data.fullDate || data.date}</span>
+                          {smoothCurve && (
+                            <span className="text-[10px] text-blue-400 bg-blue-500/10 px-1.5 py-0.5 rounded border border-blue-500/20">
+                              Media Móvil
+                            </span>
+                          )}
+                        </div>
+                        
+                        {/* Exact Set Rep Range Context */}
+                        <div className="bg-white/5 p-2 rounded-lg border border-white/5 space-y-0.5">
+                          <div className="text-[10px] text-white/50 uppercase font-semibold">Mejor Serie de la Sesión:</div>
+                          <div className="text-sm font-bold font-mono text-emerald-400">
+                            {data.bestSetContext}
+                          </div>
+                        </div>
+
+                        <div className="space-y-1 text-white/80 font-mono text-[11px]">
+                          <div className="flex justify-between">
+                            <span className="text-white/50 font-sans">Peso Máximo:</span>
+                            <span className="text-white font-bold">{smoothCurve ? data.smoothMaxWeight : data.maxWeight} kg</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-white/50 font-sans">1RM Estimado:</span>
+                            <span className="text-blue-400 font-bold">{smoothCurve ? data.smooth1RM : data.estimated1RM} kg</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-white/50 font-sans">Fuerza Relativa (1RM):</span>
+                            <span className="text-emerald-400 font-bold">
+                              {smoothCurve ? data.smoothRelativeStrength : data.relativeStrength1RM}x BW ({bodyweight} kg)
+                            </span>
+                          </div>
+                          <div className="flex justify-between pt-1 border-t border-white/10">
+                            <span className="text-white/50 font-sans">Volumen Sesión:</span>
+                            <span className="text-white">{data.totalVolume.toLocaleString()} kg ({data.sets.length} series)</span>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  }}
+                />
+
+                <Legend wrapperStyle={{ fontSize: '11px', paddingTop: '10px' }} />
+
+                {/* Solid Area/Line for Max Weight */}
+                <Area 
+                  yAxisId="left"
+                  type="monotone" 
+                  dataKey={smoothCurve ? "smoothMaxWeight" : "maxWeight"} 
+                  name={smoothCurve ? "Peso Máx (Media Móvil kg)" : "Peso Máximo (kg)"} 
+                  stroke="#2563eb" 
+                  fillOpacity={1} 
+                  fill="url(#weightGrad)" 
+                  strokeWidth={2.5} 
+                  dot={{ r: exerciseHistory.length === 1 ? 6 : 3, fill: '#2563eb', stroke: '#1d4ed8', strokeWidth: 2 }}
+                  activeDot={{ r: 7 }}
+                />
+
+                {/* Line for Estimated 1RM */}
+                <Line 
+                  yAxisId="left"
+                  type="monotone" 
+                  dataKey={smoothCurve ? "smooth1RM" : "estimated1RM"} 
+                  name={smoothCurve ? "1RM (Media Móvil kg)" : "1RM Estimado (kg)"} 
+                  stroke="#60a5fa" 
+                  strokeWidth={2.5} 
+                  strokeDasharray="4 4"
+                  dot={{ r: exerciseHistory.length === 1 ? 6 : 3, fill: '#60a5fa', stroke: '#3b82f6', strokeWidth: 2 }} 
+                  activeDot={{ r: 7 }}
+                />
+
+                {/* Neutral Line for Relative Strength (x BW Multiplier) on Right Axis */}
+                <Line 
+                  yAxisId="right"
+                  type="monotone" 
+                  dataKey={smoothCurve ? "smoothRelativeStrength" : "relativeStrength1RM"} 
+                  name="Fuerza Relativa (x BW)" 
+                  stroke="#9ca3af" 
+                  strokeWidth={2} 
+                  strokeDasharray="3 3"
+                  dot={{ r: exerciseHistory.length === 1 ? 6 : 3, fill: '#ffffff', stroke: '#9ca3af', strokeWidth: 2 }} 
+                  activeDot={{ r: 7 }}
+                />
               </AreaChart>
             </ResponsiveContainer>
           </div>
@@ -306,32 +571,219 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({ program }) => {
             Aún no hay suficientes registros históricos para este ejercicio. Realiza sesiones y marca tus series completadas.
           </div>
         )}
+
+        {exerciseHistory.length === 1 && (
+          <div className="flex items-center space-x-2.5 p-3 rounded-xl bg-blue-500/10 border border-blue-500/20 text-blue-300 text-xs">
+            <span className="text-base">💡</span>
+            <span>
+              <strong>Punto de partida inicial registrado:</strong> Este ejercicio cuenta actualmente con 1 sesión registrada ({exerciseHistory[0].date}). A medida que completes más semanas de entrenamiento, el gráfico trazará automáticamente las líneas de progresión y tendencias de sobrecarga progresiva.
+            </span>
+          </div>
+        )}
       </div>
 
-      {/* Chart 2: Total Volume Distribution by Muscle Group */}
-      <div className="bg-[#0f0f0f] border border-white/10 rounded-2xl p-6 shadow-xl">
-        <div className="mb-6">
-          <h3 className="text-lg font-semibold text-white">Volumen de Trabajo por Grupo Muscular</h3>
-          <p className="text-xs text-white/40 mt-0.5">Distribución total de peso levantado por zona del cuerpo (kg).</p>
+      {/* Chart 2: Effective Sets by Muscle Group (Hipertrofia Real) */}
+      <div className="bg-[#0f0f0f] border border-white/10 rounded-2xl p-6 shadow-xl space-y-6">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-white/10 pb-5">
+          <div>
+            <div className="flex flex-wrap items-center gap-2">
+              <Layers className="w-5 h-5 text-emerald-400" />
+              <h3 className="text-lg font-semibold text-white">Series Efectivas por Grupo Muscular</h3>
+              <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-500/10 text-emerald-300 border border-emerald-500/30">
+                Ciencia de Hipertrofia
+              </span>
+            </div>
+            <p className="text-xs text-white/50 mt-1">
+              El volumen real de hipertrofia se mide en <strong>Series Efectivas (cercanas al fallo)</strong> por músculo a la semana.
+            </p>
+          </div>
+
+          {/* View Mode Selector Tabs */}
+          <div className="flex items-center bg-[#0a0a0a] p-1 rounded-xl border border-white/10 text-xs shrink-0 self-start md:self-auto">
+            <button
+              type="button"
+              onClick={() => setMuscleViewMode('completed')}
+              className={`px-3 py-1.5 rounded-lg font-medium transition-all ${
+                muscleViewMode === 'completed'
+                  ? 'bg-emerald-600 text-white shadow-md'
+                  : 'text-white/60 hover:text-white'
+              }`}
+            >
+              Esta Semana (Hechas)
+            </button>
+            <button
+              type="button"
+              onClick={() => setMuscleViewMode('planned')}
+              className={`px-3 py-1.5 rounded-lg font-medium transition-all ${
+                muscleViewMode === 'planned'
+                  ? 'bg-blue-600 text-white shadow-md'
+                  : 'text-white/60 hover:text-white'
+              }`}
+            >
+              Planificadas (Rutina)
+            </button>
+            <button
+              type="button"
+              onClick={() => setMuscleViewMode('tonnage')}
+              className={`px-3 py-1.5 rounded-lg font-medium transition-all ${
+                muscleViewMode === 'tonnage'
+                  ? 'bg-white/20 text-white shadow-md'
+                  : 'text-white/40 hover:text-white/70'
+              }`}
+            >
+              Kilos (kg)
+            </button>
+          </div>
         </div>
 
-        {volumeByMuscle.length > 0 ? (
-          <div className="h-64 w-full">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={volumeByMuscle} margin={{ top: 10, right: 20, left: 0, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#262626" opacity={0.8} />
-                <XAxis dataKey="muscle" stroke="#737373" fontSize={11} tickLine={false} />
-                <YAxis stroke="#737373" fontSize={11} tickLine={false} unit=" kg" />
-                <Tooltip
-                  contentStyle={{ backgroundColor: '#0a0a0a', borderColor: '#262626', borderRadius: '12px', fontSize: '12px', color: '#ffffff' }}
-                />
-                <Bar dataKey="totalVolume" name="Volumen Total (kg)" fill="#2563eb" radius={[6, 6, 0, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
+        {/* Hypertrophy Scientific Range Legend / Landmarks */}
+        {muscleViewMode !== 'tonnage' && (
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
+            <div className="bg-emerald-950/20 border border-emerald-500/20 rounded-xl p-3 flex items-start space-x-2.5">
+              <div className="w-2.5 h-2.5 rounded-full bg-emerald-400 mt-1 shrink-0" />
+              <div>
+                <span className="font-semibold text-emerald-300 block">10 a 20 series · Rango Óptimo (MAV)</span>
+                <span className="text-[11px] text-white/60 leading-snug block mt-0.5">
+                  Máximo estímulo hipertrófico y adaptación muscular con buena capacidad de recuperación.
+                </span>
+              </div>
+            </div>
+
+            <div className="bg-amber-950/20 border border-amber-500/20 rounded-xl p-3 flex items-start space-x-2.5">
+              <div className="w-2.5 h-2.5 rounded-full bg-amber-400 mt-1 shrink-0" />
+              <div>
+                <span className="font-semibold text-amber-300 block">&lt; 10 series · Volumen Bajo (MEV)</span>
+                <span className="text-[11px] text-white/60 leading-snug block mt-0.5">
+                  Mantenimiento o estímulo mínimo. Incrementa series semanales para acelerar ganancias.
+                </span>
+              </div>
+            </div>
+
+            <div className="bg-rose-950/20 border border-rose-500/20 rounded-xl p-3 flex items-start space-x-2.5">
+              <div className="w-2.5 h-2.5 rounded-full bg-rose-400 mt-1 shrink-0" />
+              <div>
+                <span className="font-semibold text-rose-300 block">&gt; 20 series · Volumen Basura (MRV)</span>
+                <span className="text-[11px] text-white/60 leading-snug block mt-0.5">
+                  Fatiga acumulada excesiva sin beneficio de crecimiento adicional. Considera reducir series.
+                </span>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Main Chart Rendering */}
+        {muscleViewMode === 'tonnage' ? (
+          volumeByMuscle.length > 0 ? (
+            <div className="h-64 w-full">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={volumeByMuscle} margin={{ top: 10, right: 20, left: 0, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#262626" opacity={0.8} />
+                  <XAxis dataKey="muscle" stroke="#737373" fontSize={11} tickLine={false} />
+                  <YAxis stroke="#737373" fontSize={11} tickLine={false} unit=" kg" />
+                  <Tooltip
+                    contentStyle={{ backgroundColor: '#0a0a0a', borderColor: '#262626', borderRadius: '12px', fontSize: '12px', color: '#ffffff' }}
+                  />
+                  <Bar dataKey="totalVolume" name="Volumen Total (kg)" fill="#3b82f6" radius={[6, 6, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          ) : (
+            <div className="h-40 flex items-center justify-center text-white/30 text-sm italic border border-dashed border-white/10 rounded-xl">
+              Registra tu primera sesión para ver la distribución en kilogramos.
+            </div>
+          )
+        ) : effectiveSetsData.length > 0 ? (
+          <div className="space-y-6">
+            <div className="h-72 w-full">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={effectiveSetsData} margin={{ top: 15, right: 20, left: -10, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#262626" opacity={0.8} />
+                  <XAxis dataKey="muscle" stroke="#737373" fontSize={11} tickLine={false} />
+                  <YAxis stroke="#737373" fontSize={11} tickLine={false} unit=" ser" domain={[0, 'dataMax + 4']} />
+                  <ReferenceLine y={10} stroke="#10b981" strokeDasharray="4 4" label={{ value: 'Mínimo Óptimo (10 ser)', position: 'insideTopLeft', fill: '#10b981', fontSize: 10 }} />
+                  <ReferenceLine y={20} stroke="#f43f5e" strokeDasharray="4 4" label={{ value: 'Límite Volumen Basura (20 ser)', position: 'insideTopLeft', fill: '#f43f5e', fontSize: 10 }} />
+                  <Tooltip
+                    cursor={{ fill: 'rgba(255,255,255,0.03)' }}
+                    content={({ active, payload }) => {
+                      if (!active || !payload || !payload.length) return null;
+                      const item = payload[0].payload as MuscleEffectiveSets;
+                      return (
+                        <div className="bg-[#0a0a0a] border border-white/20 rounded-xl p-3 shadow-2xl text-xs space-y-1.5 max-w-xs">
+                          <div className="flex items-center justify-between gap-3">
+                            <span className="font-bold text-white text-sm">{item.muscle}</span>
+                            <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${item.badgeTextColor} ${item.badgeBg} border ${item.badgeBorder}`}>
+                              {item.statusLabel}
+                            </span>
+                          </div>
+                          <p className="text-white/80 font-mono">
+                            <strong className="text-white">{item.effectiveSets} series</strong> {muscleViewMode === 'planned' ? 'planificadas/sem' : 'completadas esta semana'}
+                          </p>
+                          {muscleViewMode === 'completed' && (
+                            <p className="text-[11px] text-white/50 font-mono">
+                              (Planificado total: {item.plannedWeeklySets} series)
+                            </p>
+                          )}
+                          {item.exerciseNames && item.exerciseNames.length > 0 && (
+                            <div className="pt-1 border-t border-white/10 text-[10px] text-white/50">
+                              <span className="text-white/70 block font-medium mb-0.5">Ejercicios incluidos:</span>
+                              {item.exerciseNames.join(', ')}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    }}
+                  />
+                  <Bar dataKey="effectiveSets" name="Series Efectivas" radius={[6, 6, 0, 0]}>
+                    {effectiveSetsData.map((entry, index) => (
+                      <Cell key={`cell-${index}`} fill={entry.color} />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+
+            {/* Muscle Breakdown Bento Cards Grid */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+              {effectiveSetsData.map((item) => {
+                const percentOptimal = Math.min(Math.round((item.effectiveSets / 20) * 100), 125);
+                return (
+                  <div key={item.muscle} className="bg-[#0a0a0a] border border-white/10 rounded-xl p-3.5 space-y-2 hover:border-white/20 transition-all">
+                    <div className="flex items-center justify-between">
+                      <span className="font-semibold text-white text-xs">{item.muscle}</span>
+                      <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${item.badgeTextColor} ${item.badgeBg} border ${item.badgeBorder}`}>
+                        {item.effectiveSets} series/sem
+                      </span>
+                    </div>
+
+                    {/* Progress visual bar against 10-20 benchmark */}
+                    <div className="space-y-1">
+                      <div className="w-full bg-white/5 rounded-full h-1.5 overflow-hidden flex">
+                        <div
+                          className="h-full rounded-full transition-all duration-300"
+                          style={{
+                            width: `${Math.min(percentOptimal, 100)}%`,
+                            backgroundColor: item.color,
+                          }}
+                        />
+                      </div>
+                      <div className="flex justify-between text-[9px] text-white/40 font-mono">
+                        <span>0 ser</span>
+                        <span className="text-emerald-400/80">10-20 ser (Óptimo)</span>
+                        <span className="text-rose-400/80">&gt;20 ser</span>
+                      </div>
+                    </div>
+
+                    <p className="text-[10px] text-white/40 truncate">
+                      {item.exerciseNames.join(' · ')}
+                    </p>
+                  </div>
+                );
+              })}
+            </div>
           </div>
         ) : (
           <div className="h-40 flex items-center justify-center text-white/30 text-sm italic border border-dashed border-white/10 rounded-xl">
-            Registra tu primera sesión para ver la distribución muscular.
+            No hay ejercicios asignados a grupos musculares en tu rutina actual.
           </div>
         )}
       </div>

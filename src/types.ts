@@ -63,6 +63,8 @@ export interface PersonalRecord {
 export interface GymProgram {
   fileName: string;
   lastUpdated: string;
+  activeWeekMonday?: string; // e.g. "2026-08-17" or "2026-08-24"
+  userBodyweight?: number; // User bodyweight in kg (e.g. 75)
   workoutDays: WorkoutDay[];
   history: HistoryRecord[];
 }

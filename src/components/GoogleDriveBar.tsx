@@ -180,6 +180,13 @@ export const GoogleDriveBar: React.FC<GoogleDriveBarProps> = ({
     const syncRes = await syncToDrive(program);
     setIsSyncing(false);
 
+    if (syncRes.authExpired) {
+      setDriveStatus({ configured: true, authenticated: false });
+      setHasLoadedFromDrive(false);
+      showToast('⚠️ Sesión de Google Drive expirada. Haz clic en "Vincular" para volver a conectar.');
+      return;
+    }
+
     if (syncRes.apiDisabled) {
       setApiDisabledError({ apiDisabled: true, enableUrl: syncRes.enableUrl });
     }
@@ -199,6 +206,13 @@ export const GoogleDriveBar: React.FC<GoogleDriveBarProps> = ({
     setIsLoadingDriveData(true);
     const res = await loadFromDrive();
     setIsLoadingDriveData(false);
+
+    if (res.authExpired) {
+      setDriveStatus({ configured: true, authenticated: false });
+      setHasLoadedFromDrive(false);
+      showToast('⚠️ Sesión de Google Drive expirada. Haz clic en "Vincular" para volver a conectar.');
+      return;
+    }
 
     if (res.apiDisabled) {
       setApiDisabledError({ apiDisabled: true, enableUrl: res.enableUrl });

@@ -11,6 +11,7 @@ export interface DriveAuthStatus {
   authenticated: boolean;
   user?: DriveUser;
   message?: string;
+  authExpired?: boolean;
 }
 
 export async function checkDriveStatus(): Promise<DriveAuthStatus> {
@@ -124,7 +125,7 @@ export async function logoutDrive(): Promise<boolean> {
   }
 }
 
-export async function syncToDrive(program: GymProgram): Promise<{ success: boolean; lastSynced?: string; error?: string; webViewLink?: string; apiDisabled?: boolean; enableUrl?: string }> {
+export async function syncToDrive(program: GymProgram): Promise<{ success: boolean; lastSynced?: string; error?: string; webViewLink?: string; apiDisabled?: boolean; enableUrl?: string; authExpired?: boolean }> {
   try {
     const res = await fetch('/api/drive/sync', {
       method: 'POST',
@@ -142,6 +143,7 @@ export async function syncToDrive(program: GymProgram): Promise<{ success: boole
         error: data.error || 'Error al guardar en Google Drive',
         apiDisabled: data.apiDisabled,
         enableUrl: data.enableUrl,
+        authExpired: data.authExpired || res.status === 401,
       };
     }
 
@@ -156,7 +158,7 @@ export async function syncToDrive(program: GymProgram): Promise<{ success: boole
   }
 }
 
-export async function loadFromDrive(): Promise<{ success: boolean; programData?: GymProgram; error?: string; apiDisabled?: boolean; enableUrl?: string }> {
+export async function loadFromDrive(): Promise<{ success: boolean; programData?: GymProgram; error?: string; apiDisabled?: boolean; enableUrl?: string; authExpired?: boolean }> {
   try {
     const res = await fetch('/api/drive/load');
     const data = await res.json();
@@ -167,6 +169,7 @@ export async function loadFromDrive(): Promise<{ success: boolean; programData?:
         error: data.error || 'No se pudo cargar desde Google Drive',
         apiDisabled: data.apiDisabled,
         enableUrl: data.enableUrl,
+        authExpired: data.authExpired || res.status === 401,
       };
     }
 
