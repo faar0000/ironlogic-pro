@@ -257,101 +257,138 @@ export const GoogleDriveBar: React.FC<GoogleDriveBarProps> = ({
         </div>
       )}
 
-      <div className="bg-[#121212] border-b border-white/10 text-xs py-2 px-4 sm:px-6 lg:px-8">
-        <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-3">
+      <div className="bg-[#121212] border-b border-white/10 text-xs py-2 px-3 sm:px-6 lg:px-8 overflow-hidden w-full">
+        <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2.5 sm:gap-3">
           
-          {/* Status indicator */}
-          <div className="flex items-center space-x-2">
-            {driveStatus.authenticated ? (
-              <>
-                <span className="flex h-2 w-2 relative">
-                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                  <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
-                </span>
-                <span className="text-emerald-400 font-medium flex items-center gap-1">
-                  <CloudCheck className="w-4 h-4 text-emerald-400" />
-                  Google Drive Conectado:
-                </span>
-                <span className="text-white/80 font-mono text-[11px] bg-white/5 px-2 py-0.5 rounded border border-white/10">
-                  {driveStatus.user?.email || driveStatus.user?.name || 'Usuario'}
-                </span>
-                {lastSyncTime && (
-                  <span className="text-white/40 text-[11px] font-mono hidden md:inline">
-                    (Auto-guardado {lastSyncTime})
+          {/* Status indicator row */}
+          <div className="flex items-center justify-between w-full sm:w-auto gap-2">
+            <div className="flex items-center space-x-2 min-w-0">
+              {driveStatus.authenticated ? (
+                <>
+                  <span className="flex h-2 w-2 relative shrink-0">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                    <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
                   </span>
-                )}
-              </>
-            ) : (
-              <>
-                <Cloud className="w-4 h-4 text-blue-400 animate-pulse" />
-                <span className="text-white/90 font-medium">Sincronización Multidispositivo:</span>
-                <span className="text-white/50 hidden sm:inline">
-                  Conecta tu Google Drive para mantener tu celular y computadora sincronizados
-                </span>
-              </>
-            )}
+                  <span className="text-emerald-400 font-medium flex items-center gap-1 shrink-0">
+                    <CloudCheck className="w-4 h-4 text-emerald-400 shrink-0" />
+                    <span className="hidden xs:inline">Drive Conectado:</span>
+                    <span className="xs:hidden">Drive:</span>
+                  </span>
+                  <span className="text-white/80 font-mono text-[11px] bg-white/5 px-2 py-0.5 rounded border border-white/10 truncate max-w-[130px] sm:max-w-[200px]">
+                    {driveStatus.user?.email || driveStatus.user?.name || 'Usuario'}
+                  </span>
+                  {lastSyncTime && (
+                    <span className="text-white/40 text-[11px] font-mono hidden md:inline shrink-0">
+                      ({lastSyncTime})
+                    </span>
+                  )}
+                </>
+              ) : (
+                <>
+                  <Cloud className="w-4 h-4 text-blue-400 animate-pulse shrink-0" />
+                  <span className="text-white/90 font-medium truncate">Sincronización Nube:</span>
+                  <span className="text-white/50 hidden md:inline truncate">
+                    Mantén celular y computadora sincronizados
+                  </span>
+                </>
+              )}
+            </div>
+
+            {/* Mobile-only right utility buttons (Debug + Logout / Link) */}
+            <div className="flex sm:hidden items-center space-x-1 shrink-0">
+              <button
+                onClick={handleOpenDebug}
+                className="p-1.5 text-white/70 hover:text-white bg-white/5 rounded-lg border border-white/10 transition-colors"
+                title="Diagnóstico de Google Drive"
+              >
+                <Bug className="w-3.5 h-3.5 text-amber-400" />
+              </button>
+
+              {driveStatus.authenticated ? (
+                <button
+                  onClick={handleDisconnect}
+                  className="p-1.5 text-white/40 hover:text-rose-400 bg-white/5 rounded-lg border border-white/10 transition-colors"
+                  title="Desconectar cuenta"
+                >
+                  <LogOut className="w-3.5 h-3.5" />
+                </button>
+              ) : (
+                <button
+                  onClick={handleConnect}
+                  disabled={isSyncing || isLoadingDriveData}
+                  className="px-2 py-1 bg-blue-600/20 hover:bg-blue-600/30 text-blue-300 border border-blue-500/30 rounded-lg text-[11px] font-medium"
+                >
+                  Vincular
+                </button>
+              )}
+            </div>
           </div>
 
-          {/* Action Controls - ALWAYS VISIBLE */}
-          <div className="flex flex-wrap items-center gap-2">
+          {/* Action Controls */}
+          <div className="w-full sm:w-auto flex items-center gap-1.5 sm:gap-2">
             {(isSyncing || isLoadingDriveData) && (
-              <span className="flex items-center text-blue-400 font-mono text-[11px] bg-blue-500/10 px-2 py-1 rounded border border-blue-500/20">
+              <span className="hidden xs:flex items-center text-blue-400 font-mono text-[11px] bg-blue-500/10 px-2 py-1 rounded border border-blue-500/20 shrink-0">
                 <Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5 text-blue-400" />
-                {isLoadingDriveData ? 'Descargando...' : 'Guardando...'}
+                {isLoadingDriveData ? 'Cargando...' : 'Guardando...'}
               </span>
             )}
 
-            {/* BOTÓN 1: GUARDAR EN DRIVE (Azul) */}
-            <button
-              onClick={handleSaveAction}
-              disabled={isSyncing || isLoadingDriveData}
-              className="inline-flex items-center px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-semibold text-xs border border-blue-400/30 transition-all shadow-sm active:scale-95 disabled:opacity-50 cursor-pointer"
-              title="Guardar: Subir y actualizar copia de seguridad en Google Drive"
-            >
-              <CloudUpload className="w-4 h-4 mr-1.5 text-blue-100" />
-              Guardar en Drive
-            </button>
-
-            {/* BOTÓN 2: CARGAR DE DRIVE (Esmeralda) */}
-            <button
-              onClick={handleLoadAction}
-              disabled={isSyncing || isLoadingDriveData}
-              className="inline-flex items-center px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs border border-emerald-400/30 transition-all shadow-sm active:scale-95 disabled:opacity-50 cursor-pointer"
-              title="Cargar: Descargar e importar copia guardada desde Google Drive"
-            >
-              <CloudDownload className="w-4 h-4 mr-1.5 text-emerald-100" />
-              Cargar de Drive
-            </button>
-
-            {/* BOTÓN 3: DEPURAR / DIAGNÓSTICO */}
-            <button
-              onClick={handleOpenDebug}
-              className="inline-flex items-center p-1.5 text-white/70 hover:text-white bg-white/5 hover:bg-white/10 rounded-lg border border-white/10 transition-colors cursor-pointer"
-              title="Estado y diagnóstico de conexión con Google Drive"
-            >
-              <Bug className="w-4 h-4 text-amber-400" />
-            </button>
-
-            {/* SI ESTÁ AUTENTICADO: MOSTRAR LOGOUT; SI NO: BOTÓN DE CONECTAR OPCIONAL */}
-            {driveStatus.authenticated ? (
+            {/* Grid on mobile: 2 equal buttons that fit 100% width */}
+            <div className="grid grid-cols-2 gap-1.5 w-full sm:flex sm:w-auto sm:items-center sm:gap-2">
+              {/* BOTÓN 1: GUARDAR EN DRIVE (Azul) */}
               <button
-                onClick={handleDisconnect}
-                className="p-1.5 text-white/40 hover:text-rose-400 hover:bg-rose-500/10 rounded-lg transition-colors ml-0.5 cursor-pointer"
-                title="Desconectar cuenta de Google Drive"
-              >
-                <LogOut className="w-4 h-4" />
-              </button>
-            ) : (
-              <button
-                onClick={handleConnect}
+                onClick={handleSaveAction}
                 disabled={isSyncing || isLoadingDriveData}
-                className="inline-flex items-center px-2.5 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-white/80 hover:text-white font-medium text-xs border border-white/10 transition-all cursor-pointer"
-                title="Conectar o vincular cuenta de Google Drive"
+                className="w-full sm:w-auto inline-flex items-center justify-center px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-semibold text-xs border border-blue-400/30 transition-all shadow-sm active:scale-95 disabled:opacity-50 cursor-pointer"
+                title="Guardar: Subir y actualizar copia de seguridad en Google Drive"
               >
-                <Cloud className="w-3.5 h-3.5 mr-1 text-blue-400" />
-                Vincular
+                <CloudUpload className="w-3.5 h-3.5 mr-1.5 text-blue-100 shrink-0" />
+                <span>Guardar en Drive</span>
               </button>
-            )}
+
+              {/* BOTÓN 2: CARGAR DE DRIVE (Esmeralda) */}
+              <button
+                onClick={handleLoadAction}
+                disabled={isSyncing || isLoadingDriveData}
+                className="w-full sm:w-auto inline-flex items-center justify-center px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs border border-emerald-400/30 transition-all shadow-sm active:scale-95 disabled:opacity-50 cursor-pointer"
+                title="Cargar: Descargar e importar copia guardada desde Google Drive"
+              >
+                <CloudDownload className="w-3.5 h-3.5 mr-1.5 text-emerald-100 shrink-0" />
+                <span>Cargar de Drive</span>
+              </button>
+            </div>
+
+            {/* Desktop-only Debug & Link/Logout buttons */}
+            <div className="hidden sm:flex items-center space-x-1.5 shrink-0">
+              <button
+                onClick={handleOpenDebug}
+                className="p-1.5 text-white/70 hover:text-white bg-white/5 hover:bg-white/10 rounded-lg border border-white/10 transition-colors cursor-pointer"
+                title="Estado y diagnóstico de conexión con Google Drive"
+              >
+                <Bug className="w-4 h-4 text-amber-400" />
+              </button>
+
+              {driveStatus.authenticated ? (
+                <button
+                  onClick={handleDisconnect}
+                  className="p-1.5 text-white/40 hover:text-rose-400 hover:bg-rose-500/10 rounded-lg transition-colors cursor-pointer"
+                  title="Desconectar cuenta de Google Drive"
+                >
+                  <LogOut className="w-4 h-4" />
+                </button>
+              ) : (
+                <button
+                  onClick={handleConnect}
+                  disabled={isSyncing || isLoadingDriveData}
+                  className="inline-flex items-center px-2.5 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-white/80 hover:text-white font-medium text-xs border border-white/10 transition-all cursor-pointer"
+                  title="Conectar o vincular cuenta de Google Drive"
+                >
+                  <Cloud className="w-3.5 h-3.5 mr-1 text-blue-400" />
+                  Vincular
+                </button>
+              )}
+            </div>
+
           </div>
 
         </div>
