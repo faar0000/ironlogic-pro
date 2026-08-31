@@ -1,0 +1,251 @@
+import fs from 'fs';
+import path from 'path';
+import sharp from 'sharp';
+
+const publicDir = path.join(process.cwd(), 'public');
+if (!fs.existsSync(publicDir)) {
+  fs.mkdirSync(publicDir, { recursive: true });
+}
+
+// Master high-definition SVG matching the user's Iron Fitness icon
+const svgContent = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <!-- Background Gradient -->
+    <radialGradient id="bgGrad" cx="50%" cy="45%" r="65%">
+      <stop offset="0%" stop-color="#1c1f26"/>
+      <stop offset="60%" stop-color="#101216"/>
+      <stop offset="100%" stop-color="#08090b"/>
+    </radialGradient>
+
+    <!-- Metal Plate Gradient -->
+    <linearGradient id="metalPlate" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#3d4452"/>
+      <stop offset="30%" stop-color="#2a2e38"/>
+      <stop offset="70%" stop-color="#1e2129"/>
+      <stop offset="100%" stop-color="#14161b"/>
+    </linearGradient>
+
+    <!-- Inner Core Gradient -->
+    <radialGradient id="innerCore" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#222630"/>
+      <stop offset="85%" stop-color="#12141a"/>
+      <stop offset="100%" stop-color="#0b0d11"/>
+    </radialGradient>
+
+    <!-- Barbell Chrome Gradient -->
+    <linearGradient id="barbellMetal" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#646b7a"/>
+      <stop offset="25%" stop-color="#404652"/>
+      <stop offset="50%" stop-color="#24272e"/>
+      <stop offset="75%" stop-color="#4a5160"/>
+      <stop offset="100%" stop-color="#1d2026"/>
+    </linearGradient>
+
+    <!-- Orange Glow Filter -->
+    <filter id="orangeGlow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="6" result="blur" />
+      <feComposite in="SourceGraphic" in2="blur" operator="over" />
+    </filter>
+
+    <!-- Subtle Drop Shadow -->
+    <filter id="dropShadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="12" stdDeviation="16" flood-color="#000000" flood-opacity="0.8"/>
+    </filter>
+  </defs>
+
+  <!-- Base Dark Canvas -->
+  <rect width="512" height="512" rx="108" fill="url(#bgGrad)"/>
+  
+  <!-- Subtle Carbon Pattern Accent Rings -->
+  <circle cx="256" cy="245" r="230" fill="none" stroke="#252a36" stroke-width="1.5" stroke-dasharray="4 8" opacity="0.4"/>
+  <circle cx="256" cy="245" r="215" fill="none" stroke="#1d212b" stroke-width="1" opacity="0.6"/>
+
+  <!-- BARBELL HORIZONTAL SYSTEM (Left & Right Sleeves / Plates) -->
+  <g id="barbell" filter="url(#dropShadow)">
+    <!-- Main Bar Through Center -->
+    <rect x="52" y="235" width="408" height="20" rx="3" fill="url(#barbellMetal)" stroke="#111317" stroke-width="2"/>
+    
+    <!-- Knurling / Grip pattern on bar center-sides -->
+    <line x1="80" y1="236" x2="80" y2="254" stroke="#757e91" stroke-width="2"/>
+    <line x1="95" y1="236" x2="95" y2="254" stroke="#757e91" stroke-width="2"/>
+    <line x1="110" y1="236" x2="110" y2="254" stroke="#757e91" stroke-width="2"/>
+    <line x1="402" y1="236" x2="402" y2="254" stroke="#757e91" stroke-width="2"/>
+    <line x1="417" y1="236" x2="417" y2="254" stroke="#757e91" stroke-width="2"/>
+    <line x1="432" y1="236" x2="432" y2="254" stroke="#757e91" stroke-width="2"/>
+
+    <!-- Left Plate Stack -->
+    <rect x="58" y="200" width="16" height="90" rx="4" fill="#1b1e26" stroke="#485061" stroke-width="2.5"/>
+    <rect x="74" y="185" width="22" height="120" rx="5" fill="#242933" stroke="#525b6e" stroke-width="3"/>
+    <rect x="96" y="210" width="14" height="70" rx="3" fill="#15171d" stroke="#363c4a" stroke-width="2"/>
+
+    <!-- Right Plate Stack -->
+    <rect x="402" y="210" width="14" height="70" rx="3" fill="#15171d" stroke="#363c4a" stroke-width="2"/>
+    <rect x="416" y="185" width="22" height="120" rx="5" fill="#242933" stroke="#525b6e" stroke-width="3"/>
+    <rect x="438" y="200" width="16" height="90" rx="4" fill="#1b1e26" stroke="#485061" stroke-width="2.5"/>
+  </g>
+
+  <!-- CENTRAL OCTAGONAL WEIGHT PLATE -->
+  <g id="octagonalPlate" filter="url(#dropShadow)">
+    <!-- Outer Octagon Bevel (Shadow/Highlight) -->
+    <!-- Center (256, 245), Radius ~ 155 -->
+    <polygon points="
+      180,100  332,100
+      405,173  405,317
+      332,390  180,390
+      107,317  107,173" 
+      fill="#0c0e12" stroke="#4f5768" stroke-width="5" stroke-linejoin="round"/>
+
+    <!-- Inner Octagon Face -->
+    <polygon points="
+      184,108  328,108
+      397,177  397,313
+      328,382  184,382
+      115,313  115,177" 
+      fill="url(#metalPlate)" stroke="#1a1d24" stroke-width="3" stroke-linejoin="round"/>
+
+    <!-- Industrial Rivet Bolts in 8 corners -->
+    <circle cx="190" cy="120" r="5" fill="#586275" stroke="#111317" stroke-width="2"/>
+    <circle cx="322" cy="120" r="5" fill="#586275" stroke="#111317" stroke-width="2"/>
+    <circle cx="385" cy="183" r="5" fill="#586275" stroke="#111317" stroke-width="2"/>
+    <circle cx="385" cy="307" r="5" fill="#586275" stroke="#111317" stroke-width="2"/>
+    <circle cx="322" cy="370" r="5" fill="#586275" stroke="#111317" stroke-width="2"/>
+    <circle cx="190" cy="370" r="5" fill="#586275" stroke="#111317" stroke-width="2"/>
+    <circle cx="127" cy="307" r="5" fill="#586275" stroke="#111317" stroke-width="2"/>
+    <circle cx="127" cy="183" r="5" fill="#586275" stroke="#111317" stroke-width="2"/>
+
+    <!-- Circular Hub Depressed Border -->
+    <circle cx="256" cy="245" r="116" fill="url(#innerCore)" stroke="#090a0d" stroke-width="6"/>
+    <circle cx="256" cy="245" r="112" fill="none" stroke="#363c4a" stroke-width="2"/>
+  </g>
+
+  <!-- LUMINOUS ORANGE CONCENTRIC TARGET SEGMENTS -->
+  <g id="orangeSegments" filter="url(#orangeGlow)">
+    <!-- Outer Ring Top Arc -->
+    <path d="M 195 180 A 90 90 0 0 1 345 235" 
+      fill="none" stroke="#FF5722" stroke-width="15" stroke-linecap="round"/>
+
+    <!-- Outer Ring Bottom Arc -->
+    <path d="M 330 285 A 90 90 0 0 1 175 270" 
+      fill="none" stroke="#FF5722" stroke-width="15" stroke-linecap="round"/>
+
+    <!-- Middle Ring Top Arc -->
+    <path d="M 215 200 A 62 62 0 0 1 315 225" 
+      fill="none" stroke="#FF7043" stroke-width="13" stroke-linecap="round"/>
+
+    <!-- Middle Ring Bottom Arc -->
+    <path d="M 305 270 A 62 62 0 0 1 200 255" 
+      fill="none" stroke="#FF7043" stroke-width="13" stroke-linecap="round"/>
+
+    <!-- Inner Core Ring Arc -->
+    <path d="M 230 215 A 36 36 0 0 1 288 230" 
+      fill="none" stroke="#FF8A65" stroke-width="9" stroke-linecap="round"/>
+    
+    <path d="M 285 260 A 36 36 0 0 1 224 250" 
+      fill="none" stroke="#FF8A65" stroke-width="9" stroke-linecap="round"/>
+  </g>
+
+  <!-- CENTER OVERLOAD ANALYTICS BARS (Small, Medium, Tall) -->
+  <g id="analyticsBars" filter="url(#orangeGlow)">
+    <!-- Bar 1 (Left - Small) -->
+    <rect x="238" y="245" width="9" height="15" rx="2.5" fill="#FF5722"/>
+    <!-- Bar 2 (Center - Medium) -->
+    <rect x="251.5" y="235" width="9" height="25" rx="2.5" fill="#FF7043"/>
+    <!-- Bar 3 (Right - Tallest) -->
+    <rect x="265" y="222" width="9" height="38" rx="2.5" fill="#FFA726"/>
+  </g>
+
+  <!-- BOTTOM TEXT BRANDING "IRON" & "FITNESS" -->
+  <g id="bottomBrand" filter="url(#dropShadow)">
+    <text x="256" y="445" 
+      font-family="system-ui, -apple-system, 'Segoe UI', Roboto, Montserrat, sans-serif" 
+      font-size="44" 
+      font-weight="900" 
+      font-style="italic" 
+      letter-spacing="4" 
+      text-anchor="middle" 
+      fill="#FFFFFF">
+      IRON <tspan fill="#FF5722">PRO</tspan>
+    </text>
+
+    <text x="256" y="475" 
+      font-family="system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" 
+      font-size="12" 
+      font-weight="800" 
+      letter-spacing="5" 
+      text-anchor="middle" 
+      fill="#8e99ac">
+      TRAIN HARD · TRACK SMART
+    </text>
+  </g>
+</svg>`;
+
+// Maskable version for Android (with extra safe padding)
+const svgMaskableContent = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <rect width="512" height="512" fill="#0c0e12"/>
+  <g transform="translate(51, 51) scale(0.8)">
+    ${svgContent.replace(/<rect width="512" height="512" rx="108" fill="url\(#bgGrad\)"\/>/, '')}
+  </g>
+</svg>`;
+
+async function generateAllIcons() {
+  const svgPath = path.join(publicDir, 'icon.svg');
+  const faviconSvgPath = path.join(publicDir, 'favicon.svg');
+  fs.writeFileSync(svgPath, svgContent);
+  fs.writeFileSync(faviconSvgPath, svgContent);
+
+  const svgBuffer = Buffer.from(svgContent);
+  const svgMaskableBuffer = Buffer.from(svgMaskableContent);
+
+  // 1. icon-512.png
+  await sharp(svgBuffer)
+    .resize(512, 512)
+    .png()
+    .toFile(path.join(publicDir, 'icon-512.png'));
+
+  // 2. icon-192.png
+  await sharp(svgBuffer)
+    .resize(192, 192)
+    .png()
+    .toFile(path.join(publicDir, 'icon-192.png'));
+
+  // 3. apple-touch-icon.png (180x180)
+  await sharp(svgBuffer)
+    .resize(180, 180)
+    .png()
+    .toFile(path.join(publicDir, 'apple-touch-icon.png'));
+
+  // 4. maskable icons
+  await sharp(svgMaskableBuffer)
+    .resize(512, 512)
+    .png()
+    .toFile(path.join(publicDir, 'icon-maskable-512.png'));
+
+  await sharp(svgMaskableBuffer)
+    .resize(192, 192)
+    .png()
+    .toFile(path.join(publicDir, 'icon-maskable-192.png'));
+
+  // 5. favicon-32x32.png & favicon-16x16.png
+  await sharp(svgBuffer)
+    .resize(32, 32)
+    .png()
+    .toFile(path.join(publicDir, 'favicon-32x32.png'));
+
+  await sharp(svgBuffer)
+    .resize(16, 16)
+    .png()
+    .toFile(path.join(publicDir, 'favicon-16x16.png'));
+
+  // 6. icon.png
+  await sharp(svgBuffer)
+    .resize(512, 512)
+    .png()
+    .toFile(path.join(publicDir, 'icon.png'));
+
+  console.log('All icons generated successfully in /public !');
+}
+
+generateAllIcons().catch(err => {
+  console.error('Error generating icons:', err);
+  process.exit(1);
+});

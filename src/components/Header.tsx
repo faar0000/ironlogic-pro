@@ -29,22 +29,27 @@ export const Header: React.FC<HeaderProps> = ({
             
             {/* Logo & Info */}
             <div className="flex items-center space-x-2 sm:space-x-3 min-w-0">
-              <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-lg bg-blue-600 flex items-center justify-center font-bold text-white shadow-md shadow-blue-600/30 shrink-0">
-                <Dumbbell className="w-4 h-4 sm:w-5 sm:h-5 text-white" />
+              <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-black/40 border border-white/15 flex items-center justify-center font-bold text-white shadow-md shadow-orange-500/10 shrink-0 overflow-hidden">
+                <img 
+                  src="/icon.svg" 
+                  alt="Iron Fitness Logo" 
+                  className="w-full h-full object-cover"
+                  referrerPolicy="no-referrer"
+                />
               </div>
 
               <div className="min-w-0">
                 <div className="flex items-center space-x-1.5">
                   <h1 className="text-sm sm:text-lg font-bold tracking-tight text-white whitespace-nowrap">
-                    IronLogic <span className="text-blue-500 font-light italic">Pro</span>
+                    IRON <span className="text-orange-500 font-light italic">FITNESS</span>
                   </h1>
-                  <span className="hidden md:inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-mono font-medium bg-blue-600/10 text-blue-400 border border-blue-500/30">
+                  <span className="hidden md:inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-mono font-medium bg-orange-600/10 text-orange-400 border border-orange-500/30">
                     <Sparkles className="w-3 h-3 mr-1" />
-                    Excel Sync
+                    Pro Sync
                   </span>
                 </div>
                 <p className="text-[10px] text-white/40 font-mono truncate max-w-[120px] xs:max-w-[160px] sm:max-w-md">
-                  {program.fileName ? `SYNCED: ${program.fileName}` : 'Registro de Gimnasio'}
+                  {program.fileName ? `SYNCED: ${program.fileName}` : 'Train Hard · Track Smart'}
                 </p>
               </div>
             </div>

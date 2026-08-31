@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { 
   ResponsiveContainer, LineChart, Line, BarChart, Bar, Cell, XAxis, YAxis, 
   Tooltip, CartesianGrid, Legend, AreaChart, Area, ReferenceLine 
@@ -7,7 +7,7 @@ import {
   TrendingUp, TrendingDown, Dumbbell, Award, Flame, Calendar, Sparkles, 
   Equal, ShieldAlert, BarChart2, ArrowUpRight, ArrowDownRight, Scale,
   Layers, Info, CheckCircle2, AlertTriangle, HelpCircle, Activity,
-  Zap, Edit3, Check, SlidersHorizontal
+  Zap, Edit3, Check, SlidersHorizontal, ArrowUpDown
 } from 'lucide-react';
 import { GymProgram } from '../types';
 import { 
@@ -21,6 +21,8 @@ interface AnalyticsViewProps {
   program: GymProgram;
 }
 
+type ExerciseSortMode = 'day' | 'muscle' | 'alpha';
+
 export const AnalyticsView: React.FC<AnalyticsViewProps> = ({ program }) => {
   // Get unique exercise names list
   const allExercisesSet = new Set<string>();
@@ -30,8 +32,99 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({ program }) => {
   program.history.forEach(h => allExercisesSet.add(h.exerciseName));
 
   const exerciseList = Array.from(allExercisesSet);
-  const [selectedExercise, setSelectedExercise] = useState<string>(exerciseList[0] || 'Press de Banca Plano con Barra');
+  const [selectedExercise, setSelectedExercise] = useState<string>(exerciseList[0] || 'Pull Down Maquina');
+  const [exerciseSortMode, setExerciseSortMode] = useState<ExerciseSortMode>('day');
   const [muscleViewMode, setMuscleViewMode] = useState<'completed' | 'planned' | 'tonnage'>('completed');
+
+  // Build organized groups for the dropdown
+  const exerciseGroups = useMemo(() => {
+    if (exerciseSortMode === 'day') {
+      const groups: { label: string; exercises: string[] }[] = [];
+      const addedExercises = new Set<string>();
+
+      program.workoutDays.forEach(day => {
+        if (day.dayType === 'training' && day.exercises.length > 0) {
+          const dayExs: string[] = [];
+          day.exercises.forEach(ex => {
+            if (!dayExs.includes(ex.name)) {
+              dayExs.push(ex.name);
+              addedExercises.add(ex.name);
+            }
+          });
+          if (dayExs.length > 0) {
+            const muscleStr = day.focusMuscles.length > 0 ? ` · ${day.focusMuscles.join(' / ')}` : '';
+            groups.push({
+              label: `📅 ${day.dayName.toUpperCase()}${muscleStr}`,
+              exercises: dayExs,
+            });
+          }
+        }
+      });
+
+      // History-only exercises
+      const remaining: string[] = [];
+      program.history.forEach(h => {
+        if (!addedExercises.has(h.exerciseName) && !remaining.includes(h.exerciseName)) {
+          remaining.push(h.exerciseName);
+          addedExercises.add(h.exerciseName);
+        }
+      });
+
+      if (remaining.length > 0) {
+        groups.push({
+          label: '📜 Historial / Otros Ejercicios',
+          exercises: remaining.sort((a, b) => a.localeCompare(b, 'es')),
+        });
+      }
+
+      return groups;
+    }
+
+    if (exerciseSortMode === 'muscle') {
+      const muscleMap = new Map<string, Set<string>>();
+
+      const getMuscle = (name: string): string => {
+        for (const day of program.workoutDays) {
+          const found = day.exercises.find(e => e.name === name);
+          if (found && found.muscleGroup) return found.muscleGroup;
+        }
+        const hist = program.history.find(h => h.exerciseName === name);
+        if (hist && hist.muscleGroup) return hist.muscleGroup;
+        return 'Otros';
+      };
+
+      exerciseList.forEach(name => {
+        const muscle = getMuscle(name);
+        if (!muscleMap.has(muscle)) {
+          muscleMap.set(muscle, new Set());
+        }
+        muscleMap.get(muscle)!.add(name);
+      });
+
+      const orderPriority = ['Pecho', 'Espalda', 'Pierna', 'Cuádriceps', 'Femoral', 'Hombro', 'Bíceps', 'Tríceps', 'Abdomen', 'Core'];
+      const sortedMuscles = Array.from(muscleMap.keys()).sort((a, b) => {
+        const idxA = orderPriority.findIndex(p => a.toLowerCase().includes(p.toLowerCase()));
+        const idxB = orderPriority.findIndex(p => b.toLowerCase().includes(p.toLowerCase()));
+        if (idxA !== -1 && idxB !== -1) return idxA - idxB;
+        if (idxA !== -1) return -1;
+        if (idxB !== -1) return 1;
+        return a.localeCompare(b, 'es');
+      });
+
+      return sortedMuscles.map(muscle => ({
+        label: `💪 ${muscle.toUpperCase()}`,
+        exercises: Array.from(muscleMap.get(muscle)!).sort((a, b) => a.localeCompare(b, 'es')),
+      }));
+    }
+
+    // Default 'alpha'
+    return [
+      {
+        label: '🔤 Todos los Ejercicios (A - Z)',
+        exercises: [...exerciseList].sort((a, b) => a.localeCompare(b, 'es')),
+      }
+    ];
+  }, [exerciseSortMode, program, exerciseList]);
 
   // User bodyweight state for relative strength calculation
   const [bodyweight, setBodyweight] = useState<number>(() => {
@@ -299,12 +392,12 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({ program }) => {
             </p>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2.5">
+          <div className="flex flex-wrap items-center gap-2">
             {/* Curve Smoothing Toggle */}
             <button
               type="button"
               onClick={() => setSmoothCurve(prev => !prev)}
-              className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-xl text-xs font-medium border transition-all ${
+              className={`flex items-center space-x-1.5 px-2.5 py-1.5 rounded-xl text-xs font-medium border transition-all cursor-pointer ${
                 smoothCurve
                   ? 'bg-blue-600/20 border-blue-500/40 text-blue-300 shadow-sm'
                   : 'bg-white/5 border-white/10 text-white/50 hover:text-white/80'
@@ -312,23 +405,76 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({ program }) => {
               title="Aplica una media móvil para suavizar fluctuaciones diarias y mostrar la tendencia real"
             >
               <SlidersHorizontal className="w-3.5 h-3.5" />
-              <span>Suavizar Curva (Media Móvil)</span>
+              <span className="hidden sm:inline">Suavizar Curva</span>
+              <span className="sm:hidden">Media Móvil</span>
               {smoothCurve && (
-                <span className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse ml-1" />
+                <span className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse ml-0.5" />
               )}
             </button>
 
-            {/* Exercise Selector */}
-            <div className="shrink-0">
+            {/* Sort Mode Segmented Control (Por Día | Por Músculo | A-Z) */}
+            <div className="flex items-center bg-[#0a0a0a] p-0.5 rounded-xl border border-white/10 text-[11px] font-medium">
+              <button
+                type="button"
+                onClick={() => setExerciseSortMode('day')}
+                className={`px-2 py-1 rounded-lg transition-colors cursor-pointer ${
+                  exerciseSortMode === 'day'
+                    ? 'bg-blue-600 text-white font-semibold shadow-xs'
+                    : 'text-white/50 hover:text-white'
+                }`}
+                title="Organizar por día de entrenamiento y orden de rutina"
+              >
+                Por Día
+              </button>
+              <button
+                type="button"
+                onClick={() => setExerciseSortMode('muscle')}
+                className={`px-2 py-1 rounded-lg transition-colors cursor-pointer ${
+                  exerciseSortMode === 'muscle'
+                    ? 'bg-blue-600 text-white font-semibold shadow-xs'
+                    : 'text-white/50 hover:text-white'
+                }`}
+                title="Organizar por grupo muscular"
+              >
+                Músculo
+              </button>
+              <button
+                type="button"
+                onClick={() => setExerciseSortMode('alpha')}
+                className={`px-2 py-1 rounded-lg transition-colors cursor-pointer ${
+                  exerciseSortMode === 'alpha'
+                    ? 'bg-blue-600 text-white font-semibold shadow-xs'
+                    : 'text-white/50 hover:text-white'
+                }`}
+                title="Organizar alfabéticamente A-Z"
+              >
+                A-Z
+              </button>
+            </div>
+
+            {/* Exercise Selector with Optgroups */}
+            <div className="w-full sm:w-auto min-w-[200px] max-w-xs">
               <select
                 value={selectedExercise}
                 onChange={(e) => setSelectedExercise(e.target.value)}
-                className="bg-[#0a0a0a] border border-white/10 text-white text-xs font-medium rounded-xl px-3 py-1.5 focus:ring-1 focus:ring-blue-500 focus:outline-none max-w-xs"
+                className="w-full bg-[#0a0a0a] border border-white/15 text-white text-xs font-semibold rounded-xl px-3 py-1.5 focus:ring-1 focus:ring-blue-500 focus:outline-none cursor-pointer"
               >
-                {exerciseList.map((name) => (
-                  <option key={name} value={name}>
-                    {name}
-                  </option>
+                {exerciseGroups.map((group) => (
+                  <optgroup 
+                    key={group.label} 
+                    label={group.label} 
+                    className="bg-[#141414] text-blue-400 font-bold"
+                  >
+                    {group.exercises.map((name) => (
+                      <option 
+                        key={name} 
+                        value={name} 
+                        className="bg-[#0a0a0a] text-white font-normal py-1"
+                      >
+                        {name}
+                      </option>
+                    ))}
+                  </optgroup>
                 ))}
               </select>
             </div>
